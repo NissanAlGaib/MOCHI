@@ -18,8 +18,8 @@ Hans Adrian A. Lao, Jelaine May C. Macias, Rosepel M. Maglangit.
 | 2 | Structured JSON telemetry | ✅ Done |
 | 3 | Normalization / de-obfuscation layer | ✅ Done |
 | 4 | Source tagging & payload parsing | ✅ Done |
-| 5 | Evaluation harness | ⬜ Next |
-| 6 | Stage I — syntactic filtering | ⬜ |
+| 5 | Evaluation harness | ✅ Done |
+| 6 | Stage I — syntactic filtering | ⬜ Next |
 | 7 | Session risk accumulator | ⬜ |
 | 8 | Stage II — semantic detection | ⬜ |
 | 9 | Stage III — cognitive arbitration | ⬜ |
@@ -116,10 +116,20 @@ See [docs/TELEMETRY.md](docs/TELEMETRY.md) for the full field reference and
 [docs/samples/telemetry-sample.jsonl](docs/samples/telemetry-sample.jsonl) for
 seven worked example records.
 
+## Evaluation
+
+```bash
+python eval/run_detection.py --demo                  # no downloads needed
+python eval/run_detection.py --data data/ --folds 5  # once datasets are in place
+```
+
+See [docs/EVALUATION.md](docs/EVALUATION.md) for dataset setup and metric
+definitions.
+
 ## Tests
 
 ```bash
-python -m pytest                 # 59 tests
+python -m pytest                 # 138 tests
 python demo/evasion_demo.py      # obfuscation-resistance demonstration
 ```
 

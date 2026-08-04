@@ -38,3 +38,8 @@ data/
 Thumbs.db
 .vscode/
 .idea/
+
+# Benchmark datasets - large and separately licensed; see docs/EVALUATION.md
+# The folder and its README stay tracked so the structure survives a clone.
+data/*
+!data/README.md
