@@ -30,6 +30,8 @@ class Settings:
     host: str
     port: int
     request_timeout: float
+    log_path: str
+    log_payloads: bool
 
 
 def _get_int(name: str, default: int) -> int:
@@ -52,6 +54,13 @@ def _get_float(name: str, default: float) -> float:
         raise ConfigError(f"{name} must be a number, got {raw!r}") from exc
 
 
+def _get_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     return Settings(
@@ -64,4 +73,6 @@ def get_settings() -> Settings:
         host=os.getenv("MOCHI_HOST", "127.0.0.1").strip(),
         port=_get_int("MOCHI_PORT", 8000),
         request_timeout=_get_float("MOCHI_REQUEST_TIMEOUT", 60.0),
+        log_path=os.getenv("MOCHI_LOG_PATH", "logs/mochi.jsonl").strip(),
+        log_payloads=_get_bool("MOCHI_LOG_PAYLOADS", False),
     )

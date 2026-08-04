@@ -77,3 +77,24 @@ class ChatCompletionRequest(BaseModel):
         if not payload.get("model"):
             payload["model"] = default_model
         return payload
+
+    def inspectable_text(self) -> str:
+        """All text the detection pipeline should examine, as one string.
+
+        Prefers the tagged ``context`` when supplied; otherwise falls back to
+        message content. Handles multimodal content blocks by extracting their
+        text parts and ignoring non-text (images, audio).
+        """
+        if self.context is not None:
+            return "\n".join(text for _, text in self.context.segments())
+
+        parts: list[str] = []
+        for message in self.messages:
+            content = message.content
+            if isinstance(content, str):
+                parts.append(content)
+            elif isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and isinstance(block.get("text"), str):
+                        parts.append(block["text"])
+        return "\n".join(parts)

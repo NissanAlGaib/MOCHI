@@ -15,8 +15,8 @@ Hans Adrian A. Lao, Jelaine May C. Macias, Rosepel M. Maglangit.
 |---|---|---|
 | 0 | Environment setup | ✅ Done |
 | 1 | Gateway skeleton (pass-through proxy) | ✅ Done |
-| 2 | Structured JSON telemetry | ⬜ Next |
-| 3 | Normalization / de-obfuscation layer | ⬜ |
+| 2 | Structured JSON telemetry | ✅ Done |
+| 3 | Normalization / de-obfuscation layer | ⬜ Next |
 | 4 | Source tagging & payload parsing | ⬜ |
 | 5 | Evaluation harness | ⬜ |
 | 6 | Stage I — syntactic filtering | ⬜ |
@@ -94,6 +94,27 @@ request is forwarded upstream.
 | `GET` | `/health` | Liveness + active provider/model |
 | `POST` | `/v1/chat/completions` | OpenAI-compatible inspection + forwarding |
 | `GET` | `/docs` | Auto-generated OpenAPI docs |
+
+## Telemetry
+
+Every request through `/v1/*` emits one JSON Lines record to
+`logs/mochi.jsonl` — **regardless of classification**, so benign traffic is
+logged too. That is what makes false-positive rate computable. This file is
+the data source the Phase 5/13 evaluation harness reads to produce the
+Chapter IV results tables:
+
+```python
+import pandas as pd
+df = pd.read_json("logs/mochi.jsonl", lines=True)
+```
+
+Raw prompt text is **not** stored by default — only a SHA-256 hash and length,
+per the thesis commitment on anonymization. Set `MOCHI_LOG_PAYLOADS=true` for
+controlled evaluation runs over public benchmark datasets only.
+
+See [docs/TELEMETRY.md](docs/TELEMETRY.md) for the full field reference and
+[docs/samples/telemetry-sample.jsonl](docs/samples/telemetry-sample.jsonl) for
+seven worked example records.
 
 ## Tests
 

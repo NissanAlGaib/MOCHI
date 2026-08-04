@@ -4,11 +4,15 @@ Phase 1 scope: a working OpenAI-compatible reverse proxy. A client changes
 only its ``base_url`` and traffic flows client -> MOCHI -> target LLM ->
 client. Detection is not wired in yet; :func:`inspect_request` is the single
 seam where the Phase 3-10 pipeline attaches.
+
+Phase 2 adds structured JSON telemetry: every inspected request emits one
+record regardless of outcome.
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -19,8 +23,19 @@ from mochi import __version__
 from mochi.gateway.adapters import UpstreamError, get_adapter
 from mochi.gateway.config import get_settings
 from mochi.gateway.models import ChatCompletionRequest
+from mochi.telemetry import (
+    MitigationAction,
+    PayloadCharacteristics,
+    TelemetryRecord,
+    TelemetryWriter,
+    stage_timer,
+)
 
 logger = logging.getLogger("mochi.gateway")
+
+#: Only requests under this prefix are inspected and logged; /health and /docs
+#: are infrastructure endpoints and would otherwise pollute the evaluation data.
+INSPECTED_PREFIX = "/v1/"
 
 
 @asynccontextmanager
@@ -28,16 +43,20 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     app.state.settings = settings
     app.state.adapter = get_adapter(settings.target_llm_provider)
+    app.state.telemetry_writer = TelemetryWriter(settings.log_path)
     logger.info(
-        "MOCHI %s ready - provider=%s default_model=%s",
+        "MOCHI %s ready - provider=%s default_model=%s log=%s payloads=%s",
         __version__,
         settings.target_llm_provider,
         settings.target_llm_model,
+        settings.log_path,
+        settings.log_payloads,
     )
     try:
         yield
     finally:
         await app.state.adapter.aclose()
+        app.state.telemetry_writer.close()
 
 
 app = FastAPI(
@@ -51,19 +70,53 @@ app = FastAPI(
 )
 
 
-async def inspect_request(payload: ChatCompletionRequest) -> None:
+@app.middleware("http")
+async def telemetry_middleware(request: Request, call_next):
+    """Attach a telemetry record to the request and emit it on the way out.
+
+    The record is created here and populated incrementally by the route
+    handler and (from Phase 6) each detection stage. Writing happens in a
+    ``finally`` block so a record is emitted even when the handler raises -
+    a request that crashed the pipeline is exactly the kind of event that
+    must not vanish from the log.
+    """
+    if not request.url.path.startswith(INSPECTED_PREFIX):
+        return await call_next(request)
+
+    record = TelemetryRecord()
+    request.state.telemetry = record
+    start = time.perf_counter()
+
+    try:
+        response = await call_next(request)
+        record.response_status = response.status_code
+        return response
+    finally:
+        record.latency.total_ms = round((time.perf_counter() - start) * 1000, 3)
+        writer: TelemetryWriter | None = getattr(
+            request.app.state, "telemetry_writer", None
+        )
+        if writer is not None:
+            writer.write(record)
+
+
+async def inspect_request(payload: ChatCompletionRequest,
+                          record: TelemetryRecord) -> None:
     """Detection seam.
 
-    Phase 1 is intentionally a no-op so the transport path can be validated in
-    isolation. Later phases attach here in order:
+    Phase 1-2 is intentionally a no-op so the transport and telemetry paths can
+    be validated in isolation. Later phases attach here in order:
 
-    * Phase 3  - normalization / de-obfuscation of every segment
-    * Phase 4  - per-source-tag segmentation (``payload.context``)
-    * Phase 6  - Stage I syntactic filtering
-    * Phase 7  - session risk accumulation (``payload.session_id``)
-    * Phase 8  - Stage II semantic detection
-    * Phase 9  - Stage III cognitive arbitration
+    * Phase 3  - normalization / de-obfuscation (sets ``normalization_flags``)
+    * Phase 4  - per-source-tag segmentation (sets ``source_origin``)
+    * Phase 6  - Stage I syntactic filtering (sets ``detection_results.stage_1_syntactic``)
+    * Phase 7  - session risk accumulation (sets ``session_risk_contribution``)
+    * Phase 8  - Stage II semantic detection (sets ``detection_results.stage_2_semantic``)
+    * Phase 9  - Stage III cognitive arbitration (sets ``stage_3_arbitration``)
     * Phase 10 - ALLOW / BLOCK / SANITIZE enforcement
+
+    Each stage should wrap its work in ``stage_timer(record.latency, "stage_N")``
+    so the NFR1 latency targets stay measurable.
 
     Enforcement will surface as a raised decision exception (BLOCK) or a
     mutated payload (SANITIZE).
@@ -96,6 +149,10 @@ async def health() -> dict[str, Any]:
 
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request) -> Any:
+    settings = get_settings()
+    record: TelemetryRecord = request.state.telemetry
+    record.target_provider = settings.target_llm_provider
+
     try:
         body = await request.json()
     except ValueError:
@@ -105,6 +162,12 @@ async def chat_completions(request: Request) -> Any:
         parsed = ChatCompletionRequest.model_validate(body)
     except Exception as exc:  # pydantic ValidationError
         return _error(422, f"Invalid chat completion request: {exc}")
+
+    record.session_id = parsed.session_id
+    record.target_model = parsed.model or settings.target_llm_model
+    record.payload_characteristics = PayloadCharacteristics.from_text(
+        parsed.inspectable_text(), include_content=settings.log_payloads
+    )
 
     if parsed.stream:
         # Streaming is deferred: Phase 11 outbound interception needs the full
@@ -117,15 +180,21 @@ async def chat_completions(request: Request) -> Any:
             "See docs/BUILD_PLAN.md Phase 11.",
         )
 
-    await inspect_request(parsed)
+    with stage_timer(record.latency, "inspection"):
+        await inspect_request(parsed, record)
 
-    settings = get_settings()
+    # Phase 10 will set this from the pipeline decision. Until enforcement
+    # exists, everything that reaches dispatch was allowed through.
+    record.mitigation_action_applied = MitigationAction.ALLOW
+
     upstream_body = parsed.upstream_payload(default_model=settings.target_llm_model)
 
     try:
-        return await request.app.state.adapter.chat_completion(upstream_body)
+        with stage_timer(record.latency, "upstream"):
+            return await request.app.state.adapter.chat_completion(upstream_body)
     except UpstreamError as exc:
         logger.warning("Upstream error: %s", exc)
+        record.mitigation_action_applied = MitigationAction.NOT_APPLICABLE
         return _error(exc.status_code, str(exc), payload=exc.payload)
 
 
