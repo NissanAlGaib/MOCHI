@@ -161,8 +161,14 @@ def test_decode_depth_is_capped() -> None:
 
 
 def test_random_token_not_treated_as_base64_text() -> None:
-    """An API key is base64-shaped but decodes to noise - must not false-positive."""
-    result = normalize("my key is sk_live_51H8xQ2eZvKYlo2CkIvyRk9dQ")
+    """A credential-shaped token decodes to binary noise - must not false-positive.
+
+    NOTE: this string is synthetic and deliberately avoids any real provider's
+    key-prefix format (sk_live_, ghp_, AKIA, ...) so it can never be mistaken
+    for - or trigger a scanner alert as - an actual leaked secret. It only
+    needs to be base64-alphabet-shaped and decode to non-text bytes.
+    """
+    result = normalize("my token is q7Wn2eR9tY4uI0oP3aS6dF1gH8jK5lZ2x")
     assert F.BASE64_DECODED.value not in result.flags
 
 
