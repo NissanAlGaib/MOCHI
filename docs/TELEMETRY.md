@@ -70,6 +70,8 @@ text to inspect false positives. Never enable it against real user traffic.
 | `attack_type` | string \| null | Phase 6+ | `direct_injection`, `indirect_injection`, `jailbreak`, `data_exfiltration`, `role_manipulation`, `adversarial_prompt`, `url_exfiltration`. `null` on benign traffic |
 | `severity_level` | `low`\|`medium`\|`high` \| null | Phase 6+ | Set only when an attack is identified |
 | `normalization_flags` | string[] | Phase 3 | What the preprocessor had to undo, e.g. `base64_decoded`, `zero_width_chars_detected`, `hidden_css_detected`, `unicode_nfkc_applied`. A non-empty list on otherwise-benign traffic is itself suspicious |
+| `segments_inspected` | string[] | Phase 4 | Every source tag present in the request, in order. Requests with no untrusted tag cannot be indirect-injection vectors — this is the denominator when reporting indirect ASR separately from direct |
+| `injection_class` | `direct`\|`indirect`\|`n/a` \| null | Phase 6+ | Derived from the offending segment's trust level, not from the payload text. This is what splits your Chapter IV results into direct vs indirect |
 | `mitigation_action_applied` | `ALLOW`\|`BLOCK`\|`SANITIZE`\|`N/A` | Phase 10 | Final enforcement decision. `N/A` means no decision was reached (transport error, malformed request) |
 | `response_status` | int \| null | Phase 2 | HTTP status returned to the client |
 | `target_provider` / `target_model` | string \| null | Phase 2 | Which backend served it. Drives the per-model breakdown in thesis Table 19 |
@@ -80,7 +82,7 @@ text to inspect false positives. Never enable it against real user traffic.
 |---|---|
 | `char_length` | Exact character count of inspected text |
 | `token_length` | Approximate (`len // 4`) until Phase 8 swaps in the real tokenizer. Feeds the 4,096-token budget check |
-| `language` | Populated in Phase 3. Relevant because the Stage II model is multilingual E5 — a non-English attack rate is worth reporting |
+| `language` | Dominant Unicode **script** (`latin`, `cyrillic`, `han`, ...), not full language identification — populated in Phase 4 from the preprocessor. Relevant because Stage II is multilingual E5, and because a mixed-script value is itself a homoglyph-attack signal |
 | `content_sha256` | Always present. Correlates identical payloads without storing them |
 | `content` | Raw text. `null` unless `MOCHI_LOG_PAYLOADS=true` |
 

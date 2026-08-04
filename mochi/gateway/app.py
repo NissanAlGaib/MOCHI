@@ -20,6 +20,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from mochi import __version__
+from mochi.detect import InspectionResult, inspect
 from mochi.gateway.adapters import UpstreamError, get_adapter
 from mochi.gateway.config import get_settings
 from mochi.gateway.models import ChatCompletionRequest
@@ -101,27 +102,24 @@ async def telemetry_middleware(request: Request, call_next):
 
 
 async def inspect_request(payload: ChatCompletionRequest,
-                          record: TelemetryRecord) -> None:
+                          record: TelemetryRecord) -> InspectionResult:
     """Detection seam.
 
-    Phase 1-2 is intentionally a no-op so the transport and telemetry paths can
-    be validated in isolation. Later phases attach here in order:
+    Through Phase 4 this segments the payload by source, normalizes each
+    segment, and records what it found - but reaches no verdict. Later phases
+    extend :func:`mochi.detect.pipeline.inspect` in place:
 
-    * Phase 3  - normalization / de-obfuscation (sets ``normalization_flags``)
-    * Phase 4  - per-source-tag segmentation (sets ``source_origin``)
     * Phase 6  - Stage I syntactic filtering (sets ``detection_results.stage_1_syntactic``)
     * Phase 7  - session risk accumulation (sets ``session_risk_contribution``)
     * Phase 8  - Stage II semantic detection (sets ``detection_results.stage_2_semantic``)
     * Phase 9  - Stage III cognitive arbitration (sets ``stage_3_arbitration``)
-    * Phase 10 - ALLOW / BLOCK / SANITIZE enforcement
-
-    Each stage should wrap its work in ``stage_timer(record.latency, "stage_N")``
-    so the NFR1 latency targets stay measurable.
+    * Phase 10 - ALLOW / BLOCK / SANITIZE enforcement, using each segment's
+      trust level to decide between blocking and redacting
 
     Enforcement will surface as a raised decision exception (BLOCK) or a
     mutated payload (SANITIZE).
     """
-    return None
+    return inspect(payload, record)
 
 
 def _error(status_code: int, message: str, *,

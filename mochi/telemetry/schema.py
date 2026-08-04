@@ -131,6 +131,13 @@ class TelemetryRecord(BaseModel):
     #: Flags raised by the normalization layer (Phase 3), e.g.
     #: ["zero_width_chars_detected", "base64_decoded"].
     normalization_flags: list[str] = Field(default_factory=list)
+    #: Source tags present in this request (Phase 4), in order. Requests with no
+    #: untrusted tag cannot be indirect-injection vectors, which makes this the
+    #: denominator when reporting indirect ASR separately from direct ASR.
+    segments_inspected: list[str] = Field(default_factory=list)
+    #: Attack taxonomy for the detection, derived from the offending segment's
+    #: trust level: "direct", "indirect", or "n/a" (Phase 6+).
+    injection_class: str | None = None
 
     payload_characteristics: PayloadCharacteristics | None = None
     detection_results: DetectionResults = Field(default_factory=DetectionResults)

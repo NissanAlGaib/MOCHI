@@ -17,8 +17,8 @@ Hans Adrian A. Lao, Jelaine May C. Macias, Rosepel M. Maglangit.
 | 1 | Gateway skeleton (pass-through proxy) | ✅ Done |
 | 2 | Structured JSON telemetry | ✅ Done |
 | 3 | Normalization / de-obfuscation layer | ✅ Done |
-| 4 | Source tagging & payload parsing | ⬜ Next |
-| 5 | Evaluation harness | ⬜ |
+| 4 | Source tagging & payload parsing | ✅ Done |
+| 5 | Evaluation harness | ⬜ Next |
 | 6 | Stage I — syntactic filtering | ⬜ |
 | 7 | Session risk accumulator | ⬜ |
 | 8 | Stage II — semantic detection | ⬜ |
