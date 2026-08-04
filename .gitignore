@@ -16,6 +16,11 @@ __pycache__/
 logs/
 *.log
 
+# Generated test/evidence artifacts - regenerate with the command in docs/TESTING.md
+reports/
+.coverage
+htmlcov/
+
 # Model weights (Phase 8 - keep out of git, they are large)
 models/
 *.pt

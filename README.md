@@ -16,8 +16,8 @@ Hans Adrian A. Lao, Jelaine May C. Macias, Rosepel M. Maglangit.
 | 0 | Environment setup | ✅ Done |
 | 1 | Gateway skeleton (pass-through proxy) | ✅ Done |
 | 2 | Structured JSON telemetry | ✅ Done |
-| 3 | Normalization / de-obfuscation layer | ⬜ Next |
-| 4 | Source tagging & payload parsing | ⬜ |
+| 3 | Normalization / de-obfuscation layer | ✅ Done |
+| 4 | Source tagging & payload parsing | ⬜ Next |
 | 5 | Evaluation harness | ⬜ |
 | 6 | Stage I — syntactic filtering | ⬜ |
 | 7 | Session risk accumulator | ⬜ |
@@ -119,8 +119,13 @@ seven worked example records.
 ## Tests
 
 ```bash
-python -m pytest
+python -m pytest                 # 59 tests
+python demo/evasion_demo.py      # obfuscation-resistance demonstration
 ```
+
+See [docs/TESTING.md](docs/TESTING.md) for how to generate presentable
+evidence (HTML/JUnit reports, coverage, evasion matrix) and for a live-demo
+walkthrough.
 
 ## Known limitations (current phase)
 
