@@ -1,0 +1,35 @@
+# Environments
+.venv/
+venv/
+env/
+
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Runtime output
+logs/
+*.log
+
+# Model weights (Phase 8 - keep out of git, they are large)
+models/
+*.pt
+*.bin
+*.safetensors
+
+# Datasets (Phase 5 - fetched locally, not committed)
+data/
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

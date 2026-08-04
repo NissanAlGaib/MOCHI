@@ -1,0 +1,21 @@
+# MOCHI core runtime (Phase 0-1)
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+httpx>=0.27.0
+pydantic>=2.9.0
+python-dotenv>=1.0.1
+
+# Testing
+pytest>=8.3.0
+pytest-asyncio>=0.24.0
+
+# Added in later phases (kept commented so the Phase 0-1 install stays light):
+# beautifulsoup4>=4.12.0     # Phase 3 - HTML strip / hidden-CSS flagging
+# pdfplumber>=0.11.0         # Phase 3 - PDF text + metadata extraction
+# torch>=2.4.0               # Phase 8 - Stage II semantic detection
+# transformers>=4.45.0       # Phase 8
+# sentence-transformers>=3.1.0  # Phase 8
+# openai>=1.50.0             # Phase 9 - Stage III arbiter
+# scikit-learn>=1.5.0        # Phase 5/13 - evaluation metrics
+# pandas>=2.2.0              # Phase 5/13 - dataset handling
+# scipy>=1.14.0              # Phase 13 - paired t-test, Cohen's d

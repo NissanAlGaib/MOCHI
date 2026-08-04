@@ -1,0 +1,114 @@
+# MOCHI
+
+**M**iddleware for **O**bserving, **C**lassifying, and **H**andling prompt **I**njections.
+
+A lightweight, deployable security gateway that sits between an LLM application
+and its target LLM, detecting and mitigating prompt injection attacks without
+requiring changes to application logic or to the model itself.
+
+Undergraduate thesis — BS Computer Science, Western Mindanao State University.
+Hans Adrian A. Lao, Jelaine May C. Macias, Rosepel M. Maglangit.
+
+## Status
+
+| Phase | Description | State |
+|---|---|---|
+| 0 | Environment setup | ✅ Done |
+| 1 | Gateway skeleton (pass-through proxy) | ✅ Done |
+| 2 | Structured JSON telemetry | ⬜ Next |
+| 3 | Normalization / de-obfuscation layer | ⬜ |
+| 4 | Source tagging & payload parsing | ⬜ |
+| 5 | Evaluation harness | ⬜ |
+| 6 | Stage I — syntactic filtering | ⬜ |
+| 7 | Session risk accumulator | ⬜ |
+| 8 | Stage II — semantic detection | ⬜ |
+| 9 | Stage III — cognitive arbitration | ⬜ |
+| 10 | Enforcement & sanitization | ⬜ |
+| 11 | Outbound interception | ⬜ |
+| 12 | Multi-provider adapters | ⬜ |
+| 13 | Full evaluation | ⬜ |
+| 14 | Packaging | ⬜ |
+
+See [docs/BUILD_PLAN.md](docs/BUILD_PLAN.md) for what each phase entails and
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the system design.
+
+## Quick start
+
+```bash
+python -m venv .venv
+.venv/Scripts/activate            # Windows;  source .venv/bin/activate on macOS/Linux
+pip install -r requirements.txt
+
+cp .env.example .env              # then edit .env and add your OPENAI_API_KEY
+
+python -m uvicorn mochi.gateway.app:app --reload
+```
+
+The gateway listens on `http://127.0.0.1:8000`.
+
+## Using it
+
+MOCHI speaks the OpenAI chat-completions API, so integration is a one-line
+change in the client application — no code restructuring, no SDK to adopt:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://127.0.0.1:8000/v1",   # <- the only change
+    api_key="unused",                       # MOCHI holds the real key server-side
+)
+
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[{"role": "user", "content": "Summarize this document."}],
+)
+```
+
+### Optional: source tagging
+
+Supplying `context` lets MOCHI inspect each payload segment separately and
+attribute a detection to a precise origin (which is what distinguishes a
+direct injection from an indirect one). It is entirely optional — untagged
+requests are inspected as a single blob.
+
+```json
+{
+  "model": "gpt-4o-mini",
+  "messages": [{"role": "user", "content": "Summarize the page I linked."}],
+  "session_id": "sess_abc123",
+  "context": {
+    "user_input": "Summarize the page I linked.",
+    "web_content": "<scraped page text>"
+  }
+}
+```
+
+`session_id` and `context` are MOCHI extensions and are stripped before the
+request is forwarded upstream.
+
+## Endpoints
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/health` | Liveness + active provider/model |
+| `POST` | `/v1/chat/completions` | OpenAI-compatible inspection + forwarding |
+| `GET` | `/docs` | Auto-generated OpenAPI docs |
+
+## Tests
+
+```bash
+python -m pytest
+```
+
+## Known limitations (current phase)
+
+- **Detection is not wired in yet.** Phase 1 is transport only;
+  `inspect_request()` in `mochi/gateway/app.py` is the seam where the Phase
+  3–10 pipeline attaches.
+- **Streaming (`stream: true`) returns 501.** Phase 11 outbound interception
+  needs the complete response body to scan for leaked instructions and
+  exfiltration URLs, so a streaming path would have to be buffered anyway.
+- **OpenAI is the only provider.** Anthropic and Gemini adapters arrive in
+  Phase 12. Pointing `OPENAI_BASE_URL` at any OpenAI-compatible server
+  (vLLM, Ollama, LM Studio, OpenRouter) works today.
