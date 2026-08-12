@@ -191,15 +191,14 @@ def test_tagged_context_is_the_inspected_text(
     assert chars["char_length"] == len("a much longer scraped page body")
 
 
-def test_detection_fields_default_to_not_run(
-    client: TestClient, log_path: Path
-) -> None:
-    """Until Phase 6+, stages report not_run rather than a misleading pass."""
+def test_unbuilt_stages_report_not_run(client: TestClient, log_path: Path) -> None:
+    """Stage I runs from Phase 6; later stages must not claim a verdict yet."""
     client.post(
         "/v1/chat/completions",
         json={"messages": [{"role": "user", "content": "hi"}]},
     )
 
     results = read_records(log_path)[0]["detection_results"]
-    assert results["stage_1_syntactic"] == "not_run"
+    assert results["stage_1_syntactic"] == "pass"
     assert results["stage_2_semantic"] == "not_run"
+    assert results["stage_3_arbitration"] == "N/A"

@@ -1,0 +1,324 @@
+{
+  "version": "1.0",
+  "notes": [
+    "Stage I syntactic detectors. Implements the thesis Table 8 categories.",
+    "Every pattern carries a severity. Only 'high' blocks at Stage I; 'medium'",
+    "and 'low' are recorded as signals and escalated to Stage II, because",
+    "several Table 8 patterns as literally written (\\bOR\\b, \\bAPI_KEY\\b,",
+    "\\bDAN\\b, \\bbash\\b) match ordinary English and would destroy the",
+    "FPR < 1% target if they blocked outright.",
+    "Patterns are matched against NORMALIZED text plus decoded variants from",
+    "the Phase 3 preprocessor, never against the raw payload."
+  ],
+  "detectors": [
+    {
+      "id": "direct_prompt_injection",
+      "attack_type": "direct_injection",
+      "type": "regex",
+      "description": "Explicit attempts to override or discard prior instructions.",
+      "patterns": [
+        {
+          "regex": "\\bignore\\s+(?:all\\s+)?(?:the\\s+)?(?:previous|prior|above|earlier|preceding|foregoing)\\s+(?:instruction|direction|command|prompt|rule|guideline)",
+          "severity": "high",
+          "note": "Table 8: \\bignore\\s+previous\\b, tightened to require an object noun"
+        },
+        {
+          "regex": "\\bdisregard\\s+(?:all\\s+)?(?:the\\s+)?(?:previous|prior|above|earlier|preceding)\\s+(?:instruction|direction|directive|command|prompt|rule|guideline)",
+          "severity": "high"
+        },
+        {
+          "regex": "\\bforget\\s+(?:everything|all|your|the)\\b[^.!?\\n]{0,40}?\\b(?:instruction|rule|direction|directive|guideline|training|prompt)s?\\b",
+          "severity": "high",
+          "note": "Table 8: \\bforget\\s+instructions\\b. Bounded intra-sentence gap absorbs 'forget everything you know about your instructions'"
+        },
+        {
+          "regex": "\\boverride\\s+(?:all\\s+|your\\s+|the\\s+)?(?:previous\\s+|prior\\s+)?(?:instruction|rule|setting|restriction|safety|guideline)",
+          "severity": "high"
+        },
+        {
+          "regex": "\\bignore\\s+(?:your|all|any)\\s+(?:programming|training|guidelines|safety|restrictions|rules)",
+          "severity": "high"
+        },
+        {
+          "regex": "\\b(?:instead|rather)\\s+(?:of\\s+(?:that|the\\s+above)\\s*,?\\s*)?(?:do|follow|execute)\\s+(?:this|the\\s+following)\\b",
+          "severity": "medium"
+        },
+        {
+          "regex": "\\bnew\\s+instructions?\\s*:",
+          "severity": "medium",
+          "note": "Common in attacks but also in legitimate structured prompts"
+        },
+        {
+          "regex": "\\bstop\\s+(?:being|acting\\s+as)\\s+(?:a\\s+)?(?:helpful|an?\\s+assistant)",
+          "severity": "high"
+        }
+      ]
+    },
+    {
+      "id": "indirect_prompt_injection",
+      "attack_type": "indirect_injection",
+      "type": "regex",
+      "description": "Instructions masquerading as system-level or authoritative messages inside data.",
+      "patterns": [
+        {
+          "regex": "(?:^|\\n)\\s*#{1,3}\\s*system\\s*(?:message|note|update|prompt)?\\s*:",
+          "severity": "high",
+          "note": "Table 16 System Message Attack: '## System: Execute this command'"
+        },
+        {
+          "regex": "\\bsystem\\s+(?:update|override|notice|directive)\\s*:",
+          "severity": "high",
+          "note": "Table 8: \\bSystem\\s+Update:\\b"
+        },
+        {
+          "regex": "(?:^|\\n)\\s*#{1,3}\\s*important\\s+(?:message|note|instruction)\\s+(?:from|for)\\b",
+          "severity": "high",
+          "note": "Table 16 Important Message Attack"
+        },
+        {
+          "regex": "\\[\\s*(?:system|admin|administrator|root)\\s*\\]\\s*:?",
+          "severity": "high"
+        },
+        {
+          "regex": "<\\|?\\s*im_start\\s*\\|?>\\s*system|<\\|?\\s*(?:system|endoftext)\\s*\\|?>",
+          "severity": "high",
+          "note": "Chat-template delimiter injection"
+        },
+        {
+          "regex": "(?:^|\\n)\\s*(?:AI|ASSISTANT|MODEL)\\s+(?:INSTRUCTION|DIRECTIVE|NOTE)\\s*:",
+          "severity": "high",
+          "case_sensitive": true
+        },
+        {
+          "regex": "\\bto\\s+the\\s+(?:AI|assistant|language\\s+model)\\s+(?:reading|processing|summarizing)\\s+this\\b",
+          "severity": "high",
+          "note": "Direct address to the model from inside a document"
+        },
+        {
+          "regex": "\\bend\\s+of\\s+(?:document|context|data)\\s*[.\\]]*\\s*(?:new|now|next)\\b",
+          "severity": "medium"
+        }
+      ]
+    },
+    {
+      "id": "jailbreak",
+      "attack_type": "jailbreak",
+      "type": "regex",
+      "description": "Attempts to bypass safety alignment through persona or mode switching.",
+      "patterns": [
+        {
+          "regex": "\\bdo\\s+anything\\s+now\\b",
+          "severity": "high",
+          "note": "Table 8: \\bdo anything now\\b"
+        },
+        {
+          "regex": "(?i:\\b(?:you\\s+are|act\\s+as|enter|enable|activate)\\s+(?:now\\s+)?(?:in\\s+)?(?:a\\s+|an\\s+|the\\s+)?)DAN\\b",
+          "severity": "high",
+          "case_sensitive": true,
+          "note": "Table 8 lists bare \\bDAN\\b; requiring context avoids matching the name Dan. Scoped (?i:) keeps the lead-in case-insensitive while DAN stays uppercase"
+        },
+        {
+          "regex": "DAN\\s+(?i:mode|prompt|jailbreak)\\b",
+          "severity": "high",
+          "case_sensitive": true
+        },
+        {
+          "regex": "\\bdeveloper\\s+mode\\s+(?:enabled|activated|on)\\b",
+          "severity": "high"
+        },
+        {
+          "regex": "\\bpretend\\s+(?:that\\s+)?you\\s+(?:are|have)\\s+(?:no\\s+|an?\\s+)?(?:unrestricted|unfiltered|uncensored|jailbroken|evil|amoral|no\\s+restrictions|no\\s+filters)",
+          "severity": "high"
+        },
+        {
+          "regex": "\\b(?:without|bypass|ignore|disable|remove)\\s+(?:any\\s+|all\\s+|your\\s+)?(?:safety|ethical|content)\\s+(?:filter|guideline|restriction|constraint|polic)",
+          "severity": "high"
+        },
+        {
+          "regex": "\\byou\\s+are\\s+no\\s+longer\\s+(?:bound|restricted|limited)\\s+by\\b",
+          "severity": "high"
+        },
+        {
+          "regex": "\\bjailbreak\\b",
+          "severity": "medium",
+          "note": "Also appears in legitimate security discussion"
+        },
+        {
+          "regex": "\\bhypothetical\\s+scenario\\b",
+          "severity": "low",
+          "note": "Table 8 lists this; it is extremely common in benign academic text, so it only contributes a weak signal"
+        }
+      ]
+    },
+    {
+      "id": "data_exfiltration",
+      "attack_type": "data_exfiltration",
+      "type": "regex",
+      "description": "Attempts to extract system prompts, credentials, or user data.",
+      "patterns": [
+        {
+          "regex": "\\b(?:print|reveal|show|display|output|repeat|reproduce|tell\\s+me|what\\s+(?:is|are))\\s+(?:the\\s+|your\\s+|me\\s+the\\s+|me\\s+your\\s+)?(?:system\\s+prompt|initial\\s+instruction|original\\s+instruction|system\\s+message)",
+          "severity": "high",
+          "note": "Table 8: \\bprint\\s+system\\s+prompt\\b"
+        },
+        {
+          "regex": "\\brepeat\\s+(?:the\\s+|everything\\s+)?(?:above|preceding|previous)\\s+(?:text|verbatim|exactly|word\\s+for\\s+word)",
+          "severity": "high"
+        },
+        {
+          "regex": "\\b(?:send|forward|email|post|upload|transmit|exfiltrate|leak)\\s+(?:all\\s+|the\\s+|your\\s+|my\\s+)*(?:\\w+\\s+){0,2}(?:data|record|credential|password|secret|token|file|document|conversation|history)s?\\s+to\\b",
+          "severity": "high",
+          "note": "Optional adjectives absorb 'forward all customer records to ...'"
+        },
+        {
+          "regex": "\\bcurl\\s+(?:-[A-Za-z]+\\s+)*-X\\s+POST\\b",
+          "severity": "medium",
+          "note": "Table 8: curl\\s+-X\\s+POST. Legitimate in developer help contexts"
+        },
+        {
+          "regex": "\\bAPI[_\\s-]?KEY\\b",
+          "severity": "low",
+          "note": "Table 8 lists this; it is a normal token in developer questions, so weak signal only"
+        },
+        {
+          "regex": "\\b(?:what\\s+(?:were|are)\\s+your\\s+(?:exact\\s+)?instructions|list\\s+your\\s+(?:rules|constraints|guidelines))\\b",
+          "severity": "high"
+        }
+      ]
+    },
+    {
+      "id": "role_manipulation",
+      "attack_type": "role_manipulation",
+      "type": "regex",
+      "description": "Identity or authority spoofing to grant the model new permissions.",
+      "patterns": [
+        {
+          "regex": "\\byou\\s+are\\s+now\\s+(?:an?\\s+|the\\s+)?(?:unrestricted|unfiltered|uncensored|jailbroken|evil|malicious|admin|administrator|root|superuser|developer)\\b",
+          "severity": "high",
+          "note": "Table 8: \\bYou\\s+are\\s+now\\b, tightened with a privileged-role object"
+        },
+        {
+          "regex": "\\bact\\s+as\\s+(?:an?\\s+|the\\s+)?(?:unrestricted|unfiltered|uncensored|jailbroken|admin|administrator|root|superuser)\\b",
+          "severity": "high",
+          "note": "Table 8: \\bAct\\s+as\\s+an\\s+unrestricted\\b"
+        },
+        {
+          "regex": "\\b(?:i\\s+am|this\\s+is)\\s+(?:the\\s+|your\\s+)?(?:system\\s+administrator|developer|creator|openai|anthropic)\\b",
+          "severity": "high",
+          "note": "Authority spoofing"
+        },
+        {
+          "regex": "\\byour\\s+new\\s+(?:role|persona|identity|purpose)\\s+is\\b",
+          "severity": "high"
+        },
+        {
+          "regex": "\\byou\\s+are\\s+now\\b",
+          "severity": "low",
+          "note": "Bare form from Table 8: extremely common in benign roleplay and tutoring"
+        },
+        {
+          "regex": "\\bfrom\\s+now\\s+on\\s*,?\\s+(?:you\\s+(?:will|must|shall)|ignore|disregard)\\b",
+          "severity": "medium"
+        }
+      ]
+    },
+    {
+      "id": "url_exfiltration",
+      "attack_type": "url_exfiltration",
+      "type": "regex",
+      "description": "Markdown image/link rendering used to smuggle data out via query string. Primarily an outbound (Phase 11) control; also flagged inbound.",
+      "patterns": [
+        {
+          "regex": "!\\[[^\\]]*\\]\\(\\s*https?://[^)\\s]*[?&][^)\\s]{25,}\\)",
+          "severity": "high",
+          "note": "Markdown image with a long query string - the classic exfiltration render"
+        },
+        {
+          "regex": "https?://[^\\s)]*[?&](?:data|payload|secret|token|key|prompt|q|c)=[^\\s)]{20,}",
+          "severity": "medium"
+        },
+        {
+          "regex": "\\bexternal-server\\b",
+          "severity": "medium",
+          "note": "Table 8 lists this literal"
+        }
+      ]
+    },
+    {
+      "id": "standard_it_security",
+      "attack_type": "adversarial_prompt",
+      "type": "regex",
+      "description": "Classical injection payloads (SQL, shell, path traversal) carried inside prompts.",
+      "patterns": [
+        {
+          "regex": "['\"]\\s*(?:OR|AND)\\s+['\"]?\\d+['\"]?\\s*=\\s*['\"]?\\d+",
+          "severity": "high",
+          "case_sensitive": false,
+          "note": "Real SQLi tautology. Table 8's bare (--|\\bOR\\b) would match the English word 'or'"
+        },
+        {
+          "regex": "\\bUNION\\s+(?:ALL\\s+)?SELECT\\b",
+          "severity": "high"
+        },
+        {
+          "regex": ";\\s*(?:DROP|DELETE|TRUNCATE)\\s+(?:TABLE|FROM|DATABASE)\\b",
+          "severity": "high"
+        },
+        {
+          "regex": "\\brm\\s+-[rRfd]{1,3}\\s+(?:/|~|\\*|\\$)",
+          "severity": "high",
+          "note": "Table 8: \\b(sh|bash|rm)\\b, narrowed to destructive invocation"
+        },
+        {
+          "regex": "[;|&]{1,2}\\s*(?:wget|curl|nc|netcat|bash|sh)\\s+[^\\s]",
+          "severity": "medium",
+          "note": "Shell chaining, not a bare mention of 'bash'"
+        },
+        {
+          "regex": "\\$\\([^)]{2,}\\)|`[^`]{2,}`\\s*(?:>|\\||;)",
+          "severity": "low",
+          "note": "Command substitution; overlaps heavily with legitimate code snippets"
+        },
+        {
+          "regex": "(?:\\.\\./){3,}",
+          "severity": "medium",
+          "note": "Path traversal"
+        }
+      ]
+    },
+    {
+      "id": "obfuscation_encoding",
+      "attack_type": "adversarial_prompt",
+      "type": "normalization_flag",
+      "description": "Encoding wrappers the Phase 3 preprocessor had to peel. Not regex: consumes normalization flags so the two layers stay in sync.",
+      "flags": [
+        {"flag": "base64_decoded", "severity": "medium"},
+        {"flag": "hex_decoded", "severity": "medium"},
+        {"flag": "rot13_decoded", "severity": "medium"},
+        {"flag": "url_encoded_decoded", "severity": "low"},
+        {"flag": "decode_depth_exceeded", "severity": "high",
+         "note": "Nesting beyond the cap is not something benign content does"},
+        {"flag": "oversized_after_decode", "severity": "high"}
+      ]
+    },
+    {
+      "id": "invisible_text",
+      "attack_type": "adversarial_prompt",
+      "type": "normalization_flag",
+      "description": "Content hidden from human review but visible to the model.",
+      "flags": [
+        {"flag": "zero_width_chars_detected", "severity": "high",
+         "note": "Zero-width characters inside a prompt have no legitimate purpose"},
+        {"flag": "bidi_control_chars_detected", "severity": "high",
+         "note": "Trojan Source style directional overrides"},
+        {"flag": "homoglyphs_normalized", "severity": "medium"},
+        {"flag": "mixed_script_detected", "severity": "low",
+         "note": "Legitimate in genuinely multilingual content"},
+        {"flag": "hidden_css_detected", "severity": "medium"},
+        {"flag": "html_comment_extracted", "severity": "low"},
+        {"flag": "excessive_special_characters", "severity": "low",
+         "note": "Adversarial suffix signature; also matches code and ASCII art"}
+      ]
+    }
+  ]
+}
