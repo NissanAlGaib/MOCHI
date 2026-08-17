@@ -36,6 +36,8 @@ class Settings:
     enable_stage2: bool
     stage2_model_dir: str
     block_severity: str
+    sanitize_untrusted: bool
+    resolve_band_by_trust: bool
 
 
 def _get_int(name: str, default: int) -> int:
@@ -87,4 +89,11 @@ def get_settings() -> Settings:
         enable_stage2=_get_bool("MOCHI_ENABLE_STAGE2", False),
         stage2_model_dir=os.getenv("MOCHI_STAGE2_MODEL_DIR", "").strip(),
         block_severity=os.getenv("MOCHI_BLOCK_SEVERITY", "high").strip().lower(),
+        # Redact injections found in untrusted content rather than rejecting the
+        # whole request. Off means blunter behaviour: any detection blocks.
+        # Kept configurable because it is an ablation arm in Chapter IV.
+        sanitize_untrusted=_get_bool("MOCHI_SANITIZE_UNTRUSTED", True),
+        # Resolve Stage II's uncertain band by source trust instead of escalating
+        # to a Stage III LLM. Deterministic and free; see docs/BUILD_PLAN.md.
+        resolve_band_by_trust=_get_bool("MOCHI_RESOLVE_BAND_BY_TRUST", True),
     )

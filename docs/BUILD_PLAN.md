@@ -180,12 +180,34 @@ Only **3 of 82,765** samples exceed 20,000 characters. The benchmark corpus is a
 
 ## Phase 10 — Decision Enforcement + Sanitization
 
-**Goal:** turn detection into action.
+**Goal:** turn detection into action. Before this, MOCHI detected attacks and forwarded them anyway — an observability layer with a security-shaped hole. This closes FR2.
 
-- `mitigate/sanitizer.py`: given flagged spans, redact them and return the remaining prompt intact
-- `detect/pipeline.py`: full ALLOW / BLOCK / SANITIZE logic per Figure 7's hybrid decision rule, now including session risk as an input
+**Status: implemented.** `mochi/mitigate/sanitizer.py`, wired into `chat_completions`. 31 tests.
 
-**Definition of done:** a request with one malicious sentence embedded in an otherwise-benign prompt gets sanitized (not fully blocked) and the sanitized version still reaches the target LLM.
+### The policy
+
+One organising principle:
+
+> **The action targets the segment that is guilty. Blocking is only correct when the guilty segment is the request itself.**
+
+| Detection | Source | Action | Why |
+|---|---|---|---|
+| Confident | user_input / system_prompt | **BLOCK** | the request *is* the attack; nothing legitimate survives redaction |
+| Confident | web_content / retrieved_document / api_response | **SANITIZE** | the user's question is legitimate; rejecting it punishes the principal for the attacker's content |
+| Stage II band (0.45–0.55) | untrusted | **SANITIZE** | untrusted data should never carry instructions, so a weak signal is worth acting on |
+| Stage II band | user_input | **ALLOW** + log | over-blocking the principal is a direct utility cost; the turn still feeds session risk |
+
+Note the band rows resolve **without an LLM arbiter** — trust provenance is ground truth Stage III doesn't have privileged access to. This is the zero-latency, deterministic alternative to arbitration (see Phase 9). `MOCHI_RESOLVE_BAND_BY_TRUST=false` disables it; `MOCHI_SANITIZE_UNTRUSTED=false` gives the blunter block-everything arm for the ablation.
+
+### Two properties that fail silently, so both are pinned by tests
+
+**Verified redaction, or escalation.** A SANITIZE that failed to remove the payload would log successful mitigation while forwarding the attack — strictly worse than not claiming mitigation. Redaction is verified; if a target span cannot be located, the request is **escalated to BLOCK** and `verdict.escalated` records it. This fires legitimately: a payload recovered from base64 in Phase 3 has no literal counterpart in the raw text.
+
+**Sentence-level, not span-level.** Redacting only the detector's matched span left the operative part of the instruction behind — the pattern for "email X to Y" matched `email the admin password` but not `to evil@example.com`, so the exfiltration destination was forwarded. Redaction removes the enclosing sentence, with a boundary rule that does not treat the dot in `example.com` as a sentence end.
+
+**Known limitation:** JSON tool results have no sentence boundaries, so a payload appended to structured output takes the structure with it. Over-redaction inside an untrusted segment is the safe direction; a JSON-aware redactor is deferred.
+
+**Definition of done:** met — `demo/enforcement_demo.py` shows all nine scenarios, and `tests/test_mitigate.py` asserts on what the stub adapter *received*, which is the only thing that proves enforcement happened.
 
 ---
 

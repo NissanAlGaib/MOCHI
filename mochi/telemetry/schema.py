@@ -153,6 +153,14 @@ class TelemetryRecord(BaseModel):
     payload_characteristics: PayloadCharacteristics | None = None
     detection_results: DetectionResults = Field(default_factory=DetectionResults)
     mitigation_action_applied: str = MitigationAction.NOT_APPLICABLE
+    #: Why that action was chosen (Phase 10). On a BLOCK this is also the message
+    #: returned to the client, so it never quotes the payload.
+    mitigation_detail: str | None = None
+    #: Segment origins whose content was redacted, e.g. ``["context.web_content"]``.
+    redacted_origins: list[str] = Field(default_factory=list)
+    #: How many spans were actually removed. Zero on a SANITIZE means redaction
+    #: failed and the request was escalated to BLOCK - see mochi.mitigate.
+    spans_redacted: int = 0
 
     latency: LatencyBreakdown = Field(default_factory=LatencyBreakdown)
 

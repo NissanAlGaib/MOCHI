@@ -187,6 +187,19 @@ DATA = [
      "arXiv preprint ID alongside the ACM CODASPY DOI.",
      "IMPLEMENTED", "eval/fetch_datasets.py SOURCES, with provenance comment."),
 
+    ("D12", "Span-level redaction left the exfiltration target in the prompt",
+     "Found by running demo/enforcement_demo.py",
+     "DEFECT, now FIXED. Sanitisation originally removed the detector's matched "
+     "span. But a match is a partial view of the instruction: the pattern for "
+     "'email X to Y' matched 'email the admin password' and not "
+     "'to evil@example.com', so redaction forwarded the exfiltration address to "
+     "the model, plus fragments stranded between two overlapping matches. "
+     "Redaction now removes the enclosing sentence, and the boundary rule "
+     "requires whitespace after a terminator so the dot in 'example.com' does "
+     "not end a sentence mid-domain. Lesson for the write-up: removing what a "
+     "detector matched is not the same as neutralising a payload.",
+     "IMPLEMENTED", "mochi/mitigate/sanitizer.py; 6 regression tests."),
+
     ("D9", "Stage I silently truncated long documents at 20,000 characters",
      "Adviser comment: 'what if 10 words but 1 word only malicious'",
      "DEFECT, now FIXED. scan_text() cut every text to the first 20,000 chars "
@@ -375,8 +388,11 @@ PHASES = [
      "attribution implemented per D5/D10. Remaining: Colab fine-tune and "
      "export to models/e5-fine-tuned/."),
     ("9", "Stage III cognitive arbitration", "NOT STARTED", "LLM arbiter"),
-    ("10", "Enforcement and sanitization", "NOT STARTED",
-     "ALLOW / BLOCK / SANITIZE using segment trust"),
+    ("10", "Enforcement and sanitization", "IMPLEMENTED",
+     "ALLOW / BLOCK / SANITIZE using segment trust. Closes FR2 - before this "
+     "the gateway detected attacks and forwarded them anyway. Resolves the "
+     "Stage II uncertain band by trust rather than an LLM arbiter (Q7). "
+     "31 tests; demo/enforcement_demo.py covers 9 scenarios."),
     ("11", "Outbound interception", "NOT STARTED",
      "Leaked-instruction and URL-exfiltration scanning"),
     ("12", "Multi-provider adapters", "PARTIAL",
@@ -397,6 +413,13 @@ DECISIONS = [
      "relationship to jayavibhav disclosed."),
     ("Q4", "Subsample jayavibhav? - ANSWERED: yes, capped at 40,000",
      "Capped. See D6. Final corpus 82,765 at 43.3% malicious."),
+    ("Q7", "Omit the Stage III LLM arbiter? - ANSWERED: yes, by default",
+     "Implemented in Phase 10: the Stage II uncertain band is resolved by "
+     "source trust, deterministically and at zero latency. Stage III remains "
+     "planned behind a flag, default off, reported as an ablation arm. Reasons "
+     "beyond cost: an LLM arbiter is itself prompt-injectable, is not "
+     "reproducible (which the Reliability section requires), and forces a "
+     "network dependency on a security component."),
     ("Q8", "Build a purpose-built indirect-injection fixture set? - see D11",
      "The public corpora are 99.996% short prompts, so they cannot test the "
      "long-document dilution case that is MOCHI's main claimed value. "

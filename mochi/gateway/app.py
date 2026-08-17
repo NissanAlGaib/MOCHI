@@ -24,6 +24,7 @@ from mochi.detect import InspectionResult, inspect
 from mochi.gateway.adapters import UpstreamError, get_adapter
 from mochi.gateway.config import get_settings
 from mochi.gateway.models import ChatCompletionRequest
+from mochi.mitigate import BLOCK_STATUS, enforce
 from mochi.telemetry import (
     MitigationAction,
     PayloadCharacteristics,
@@ -149,14 +150,19 @@ async def inspect_request(payload: ChatCompletionRequest,
 
 
 def _error(status_code: int, message: str, *,
-           payload: dict[str, Any] | None = None) -> JSONResponse:
-    """Render an error in the OpenAI error envelope clients already parse."""
+           payload: dict[str, Any] | None = None,
+           extra: dict[str, Any] | None = None) -> JSONResponse:
+    """Render an error in the OpenAI error envelope clients already parse.
+
+    ``extra`` is merged into the error object - used to return the request id on
+    a block, so a user reporting a false positive can name the log entry.
+    """
     if payload is not None:
         return JSONResponse(status_code=status_code, content=payload)
-    return JSONResponse(
-        status_code=status_code,
-        content={"error": {"message": message, "type": "mochi_error"}},
-    )
+    error: dict[str, Any] = {"message": message, "type": "mochi_error"}
+    if extra:
+        error.update(extra)
+    return JSONResponse(status_code=status_code, content={"error": error})
 
 
 @app.get("/health")
@@ -205,11 +211,28 @@ async def chat_completions(request: Request) -> Any:
         )
 
     with stage_timer(record.latency, "inspection"):
-        await inspect_request(parsed, record, app_state=request.app.state)
+        inspection = await inspect_request(
+            parsed, record, app_state=request.app.state
+        )
 
-    # Phase 10 will set this from the pipeline decision. Until enforcement
-    # exists, everything that reaches dispatch was allowed through.
-    record.mitigation_action_applied = MitigationAction.ALLOW
+    # --- enforcement (Phase 10) ---
+    # ``enforce`` mutates ``parsed`` in place on SANITIZE, so it must run before
+    # ``upstream_payload`` serializes it.
+    verdict = enforce(
+        parsed,
+        inspection,
+        sanitize_untrusted=settings.sanitize_untrusted,
+        resolve_band_by_trust=settings.resolve_band_by_trust,
+    )
+    record.mitigation_action_applied = verdict.action
+    record.mitigation_detail = verdict.reason
+    record.redacted_origins = verdict.redacted_origins
+    record.spans_redacted = verdict.spans_removed
+
+    if verdict.blocks:
+        logger.info("BLOCK %s - %s", record.request_id, verdict.reason)
+        return _error(BLOCK_STATUS, verdict.reason,
+                      extra={"request_id": record.request_id})
 
     upstream_body = parsed.upstream_payload(default_model=settings.target_llm_model)
 
