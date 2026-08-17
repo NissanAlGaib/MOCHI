@@ -296,10 +296,13 @@ THESIS = [
      "Implementation finding",
      "Table 16 includes multi-step attack chains, which a stateless design "
      "cannot detect by construction - each turn is scored in isolation. "
-     "Agreed resolution: add a session-level rolling risk accumulator (Phase 7) "
-     "and revise the text to say per-request DETECTION is stateless while "
-     "session-level ESCALATION is intentionally stateful.",
-     "PLANNED", "Phase 7; approach agreed, not yet built."),
+     "RESOLVED in code. A session-level rolling risk accumulator (Phase 7) is "
+     "built: 5-turn window, summed risk, threshold 1.0. Chapter III still needs "
+     "the wording change - per-request DETECTION is stateless while "
+     "session-level ESCALATION is intentionally stateful - plus a sentence "
+     "stating that session state is in-process, so the evaluated deployment is "
+     "single-instance and horizontal scaling was not tested.",
+     "THESIS EDIT", "Code done (mochi/session/); manuscript wording pending."),
 
     ("T6", "Several Table 8 patterns would destroy the FPR target",
      "Phase 6 implementation",
@@ -380,8 +383,11 @@ PHASES = [
     ("6", "Stage I syntactic filtering", "IMPLEMENTED",
      "On the balanced corpus: P=0.9728 R=0.0590 F1=0.1112 FPR=0.0013, "
      "0.550 ms mean / 1.611 ms p95. Long-document scanning fixed (see D9)."),
-    ("7", "Session risk accumulator", "NOT STARTED",
-     "Approach agreed; addresses T5 and multi-step chains"),
+    ("7", "Session risk accumulator", "IMPLEMENTED",
+     "Rolling 5-turn window, threshold 1.0, LRU-capped and TTL-expired, "
+     "mutex-guarded. Resolves T5. Escalation obeys the same trust rule as a "
+     "confident detection. 36 tests; demo/chain_demo.py shows a 3-turn chain "
+     "passing a stateless pipeline and being caught at cumulative 1.22."),
     ("8", "Stage II semantic detection", "PARTIAL",
      "Code complete and fully tested through a stub scorer (44 tests); model "
      "not yet trained. Chunk-and-take-max, gated attention pooling, and span "

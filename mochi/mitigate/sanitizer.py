@@ -40,7 +40,17 @@ from typing import Any
 
 from mochi.detect.pipeline import InspectionResult
 from mochi.detect.segments import Segment, TrustLevel
+from mochi.detect.stage2_semantic import BENIGN_THRESHOLD, MALICIOUS_THRESHOLD
 from mochi.telemetry import MitigationAction
+
+#: Minimum Stage II score for a segment to be considered the guilty one once
+#: cumulative session risk has already crossed. Set below
+#: :data:`~mochi.detect.stage2_semantic.BENIGN_THRESHOLD` on purpose: a priming
+#: chain is built out of turns that each score in the 0.3-0.4 range, so a floor
+#: at the single-turn threshold would make session risk unreachable for exactly
+#: the attack it exists to catch. Not zero, so a genuinely clean turn in a risky
+#: session is still allowed.
+SESSION_ESCALATION_FLOOR = 0.20
 
 #: Replaces redacted content. Deliberately inert: no imperative verb, no
 #: addressee, nothing an LLM could read as an instruction. A marker like
@@ -121,8 +131,14 @@ def _stage1_targets(result: InspectionResult) -> list[tuple[Segment, str]]:
 
 
 def _stage2_targets(result: InspectionResult, *,
-                    include_uncertain: bool) -> list[tuple[Segment, str]]:
-    """Redaction targets derived from Stage II's span and token attribution.
+                    min_score: float) -> list[tuple[Segment, str]]:
+    """Redaction targets from segments scoring at or above ``min_score``.
+
+    The threshold is a parameter rather than a constant because the bar moves
+    with the evidence available: ``MALICIOUS_THRESHOLD`` for a confident
+    single-turn verdict, ``BENIGN_THRESHOLD`` for the uncertain band, and
+    :data:`SESSION_ESCALATION_FLOOR` once cumulative session risk has crossed -
+    accumulated evidence across turns lowers the bar for the current one.
 
     Prefers whole sentences containing an attributed token over the raw window:
     a 2,048-character window usually holds legitimate content too, and removing
@@ -131,7 +147,7 @@ def _stage2_targets(result: InspectionResult, *,
     """
     targets = []
     for segment, stage2 in result.stage2:
-        if not (stage2.should_block or (include_uncertain and stage2.is_uncertain)):
+        if not stage2.ran or stage2.score < min_score:
             continue
         top = stage2.top
         if top is None:
@@ -165,7 +181,7 @@ def decide(result: InspectionResult, *,
     """
     # --- confident detections ---
     stage1 = _stage1_targets(result)
-    stage2 = _stage2_targets(result, include_uncertain=False)
+    stage2 = _stage2_targets(result, min_score=MALICIOUS_THRESHOLD)
     confident = stage1 + stage2
 
     if confident:
@@ -190,7 +206,7 @@ def decide(result: InspectionResult, *,
 
     # --- Stage II uncertain band ---
     if resolve_band_by_trust and result.stage2_uncertain:
-        uncertain = _stage2_targets(result, include_uncertain=True)
+        uncertain = _stage2_targets(result, min_score=BENIGN_THRESHOLD)
         untrusted = [(seg, text) for seg, text in uncertain if seg.is_untrusted]
         if untrusted and sanitize_untrusted:
             return Verdict(
@@ -205,15 +221,69 @@ def decide(result: InspectionResult, *,
         if untrusted:
             return Verdict(decision=Decision.BLOCK,
                            reason="Ambiguous content in an untrusted segment.")
-        # Ambiguous, but it came from the principal. Allow and log: over-blocking
-        # the user is a direct utility cost, and the turn still feeds session risk.
-        return Verdict(
-            decision=Decision.ALLOW,
-            reason=("Ambiguous content in user input; allowed and logged. "
-                    "Recorded against session risk."),
-        )
+        if not result.session_escalated:
+            # Ambiguous, but it came from the principal and this turn stands
+            # alone. Allow and log - over-blocking the user is a direct utility
+            # cost, and the turn still feeds session risk.
+            return Verdict(
+                decision=Decision.ALLOW,
+                reason=("Ambiguous content in user input; allowed and logged. "
+                        "Recorded against session risk."),
+            )
+
+    # --- cumulative session risk (Phase 7) ---
+    # Reached when no single turn crossed a blocking threshold but the window
+    # did. The bar for "which segment is guilty" drops to
+    # SESSION_ESCALATION_FLOOR here, because the evidence is the pattern across
+    # turns rather than the content of any one of them. This is the case a
+    # stateless-per-request pipeline cannot see (register item T5).
+    if result.session_escalated:
+        verdict = _session_verdict(result, sanitize_untrusted=sanitize_untrusted)
+        if verdict is not None:
+            return verdict
 
     return Verdict(decision=Decision.ALLOW)
+
+
+def _session_verdict(result: InspectionResult, *,
+                     sanitize_untrusted: bool) -> Verdict | None:
+    """Decide a turn that only looks wrong in the context of its session.
+
+    Applies the same trust rule as a confident detection, for the same reason: a
+    chain assembled out of the principal's own turns means the request is the
+    attack, and there is nothing legitimate left to serve by redacting it. A
+    chain arriving through untrusted content is still the attacker's text sitting
+    inside a legitimate request, so it is redacted.
+    """
+    assert result.session is not None
+    targets = _stage2_targets(result, min_score=SESSION_ESCALATION_FLOOR)
+    signalling = {
+        segment.origin: segment
+        for segment, stage1 in result.stage1 if stage1.matched
+    } | {segment.origin: segment for segment, _ in targets}
+
+    if not signalling:
+        return None
+
+    evidence = (
+        f"cumulative session risk {result.session.cumulative:.2f} across "
+        f"{result.session.turns} turns; no single turn crossed the blocking "
+        "threshold, the pattern did"
+    )
+
+    if any(s.trust is not TrustLevel.UNTRUSTED for s in signalling.values()):
+        return Verdict(
+            decision=Decision.BLOCK,
+            reason=f"Request blocked by MOCHI: multi-step injection chain - {evidence}.",
+        )
+    if not sanitize_untrusted or not targets:
+        return Verdict(decision=Decision.BLOCK,
+                       reason=f"Request blocked by MOCHI: {evidence}.")
+    return Verdict(
+        decision=Decision.SANITIZE,
+        reason=f"Suspect content removed on {evidence}.",
+        targets=targets,
+    )
 
 
 def _block_reason(result: InspectionResult, guilty: list[Segment]) -> str:

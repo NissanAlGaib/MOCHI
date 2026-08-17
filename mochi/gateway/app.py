@@ -25,6 +25,7 @@ from mochi.gateway.adapters import UpstreamError, get_adapter
 from mochi.gateway.config import get_settings
 from mochi.gateway.models import ChatCompletionRequest
 from mochi.mitigate import BLOCK_STATUS, enforce
+from mochi.session import RiskAccumulator
 from mochi.telemetry import (
     MitigationAction,
     PayloadCharacteristics,
@@ -51,6 +52,13 @@ async def lifespan(app: FastAPI):
     # reused for the process lifetime. Loading is eager and failure is fatal:
     # a gateway that silently ran Stage I only, while its operator believed
     # Stage II was active, would produce a false sense of coverage.
+    # One accumulator for the process; it holds all session history.
+    app.state.accumulator = (
+        RiskAccumulator(window=settings.session_window,
+                        threshold=settings.session_risk_threshold)
+        if settings.enable_session_risk else None
+    )
+
     app.state.stage2 = None
     if settings.enable_stage2:
         from mochi.detect.stage2_semantic import get_detector as get_stage2
@@ -139,6 +147,9 @@ async def inspect_request(payload: ChatCompletionRequest,
     """
     settings = get_settings()
     stage2 = getattr(app_state, "stage2", None) if app_state is not None else None
+    accumulator = (
+        getattr(app_state, "accumulator", None) if app_state is not None else None
+    )
     return inspect(
         payload,
         record,
@@ -146,6 +157,7 @@ async def inspect_request(payload: ChatCompletionRequest,
         enable_stage1=settings.enable_stage1,
         enable_stage2=settings.enable_stage2 and stage2 is not None,
         stage2=stage2,
+        accumulator=accumulator,
     )
 
 

@@ -14,6 +14,8 @@ from functools import lru_cache
 
 from dotenv import load_dotenv
 
+from mochi.session import DEFAULT_THRESHOLD, DEFAULT_WINDOW
+
 load_dotenv()
 
 
@@ -38,6 +40,9 @@ class Settings:
     block_severity: str
     sanitize_untrusted: bool
     resolve_band_by_trust: bool
+    enable_session_risk: bool
+    session_window: int
+    session_risk_threshold: float
 
 
 def _get_int(name: str, default: int) -> int:
@@ -96,4 +101,12 @@ def get_settings() -> Settings:
         # Resolve Stage II's uncertain band by source trust instead of escalating
         # to a Stage III LLM. Deterministic and free; see docs/BUILD_PLAN.md.
         resolve_band_by_trust=_get_bool("MOCHI_RESOLVE_BAND_BY_TRUST", True),
+        # Cross-turn risk accumulation. On by default: it costs a dict lookup and
+        # is the only defence against multi-step chains. Requires clients to send
+        # session_id - untagged requests are simply not tracked.
+        enable_session_risk=_get_bool("MOCHI_ENABLE_SESSION_RISK", True),
+        session_window=_get_int("MOCHI_SESSION_WINDOW", DEFAULT_WINDOW),
+        session_risk_threshold=_get_float(
+            "MOCHI_SESSION_RISK_THRESHOLD", DEFAULT_THRESHOLD
+        ),
     )

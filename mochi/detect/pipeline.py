@@ -22,6 +22,7 @@ from mochi.detect.stage2_semantic import (
     Stage2Detector,
     Stage2Result,
 )
+from mochi.session import RiskAccumulator, RiskUpdate, turn_risk
 from mochi.telemetry import TelemetryRecord, stage_timer
 
 
@@ -33,6 +34,13 @@ class InspectionResult:
     flags: list[str] = field(default_factory=list)
     stage1: list[tuple[Segment, Stage1Result]] = field(default_factory=list)
     stage2: list[tuple[Segment, Stage2Result]] = field(default_factory=list)
+    session: RiskUpdate | None = None
+    """Session risk after this turn (Phase 7). ``None`` when not tracked."""
+
+    @property
+    def session_escalated(self) -> bool:
+        """Whether accumulated cross-turn risk warrants acting on this turn."""
+        return self.session is not None and self.session.escalate
 
     # --- segment views ---
 
@@ -165,7 +173,8 @@ def inspect(request, record: TelemetryRecord, *,
             block_severity: str = DEFAULT_BLOCK_SEVERITY,
             enable_stage1: bool = True,
             enable_stage2: bool = False,
-            stage2: Stage2Detector | None = None) -> InspectionResult:
+            stage2: Stage2Detector | None = None,
+            accumulator: RiskAccumulator | None = None) -> InspectionResult:
     """Segment, preprocess, and run the detection cascade.
 
     Stage II is opt-in and requires a detector instance. It is off by default so
@@ -173,11 +182,9 @@ def inspect(request, record: TelemetryRecord, *,
     model; ``mochi/gateway/app.py`` builds the detector once at startup when
     ``MOCHI_ENABLE_STAGE2`` is set.
 
-    Later phases extend this function in place:
-
-    * Phase 7  - session risk accumulation
-    * Phase 9  - Stage III arbitrates the uncertain band
-    * Phase 10 - enforcement uses ``segment.trust`` to choose BLOCK vs SANITIZE
+    Phase 9 extends this in place, adding Stage III arbitration of the uncertain
+    band. Enforcement lives in :mod:`mochi.mitigate`, not here - detection
+    decides *what* a request is, mitigation decides what to do about it.
     """
     segments = build_segments(request)
 
@@ -217,6 +224,16 @@ def inspect(request, record: TelemetryRecord, *,
                 (segment, stage2.scan(segment.scannable)) for segment in segments
             ]
 
+    # --- session risk (Phase 7) ---
+    # Runs after both stages so it can see their scores, and unconditionally on
+    # every non-blocked turn: a chain is built out of turns that individually
+    # looked fine, so skipping the quiet ones would discard exactly the evidence
+    # this is for.
+    if accumulator is not None and not result.stage1_blocked:
+        result.session = accumulator.record_turn(
+            getattr(request, "session_id", None), turn_risk(result)
+        )
+
     # --- telemetry ---
     record.normalization_flags = list(aggregated_flags)
     record.segments_inspected = [segment.source_tag for segment in segments]
@@ -253,6 +270,14 @@ def inspect(request, record: TelemetryRecord, *,
             # window. Stage II fills in only what Stage I left blank.
             if record.source_origin is None and semantic.score >= BENIGN_THRESHOLD:
                 record.source_origin = segment.source_tag
+
+    if result.session is not None and result.session.tracked:
+        record.detection_results.session_risk_contribution = round(
+            result.session.contribution, 4
+        )
+        record.detection_results.session_cumulative_risk = round(
+            result.session.cumulative, 4
+        )
 
     if enable_stage1 or result.stage2:
         record.injection_class = result.injection_class
