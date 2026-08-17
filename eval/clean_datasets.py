@@ -1,7 +1,9 @@
-"""Dataset cleaning for training and evaluation.
+"""Dataset cleaning and corpus balancing for training and evaluation.
 
     python eval/clean_datasets.py --data data/ --out data/clean/
     python eval/clean_datasets.py --data data/ --out data/clean/ --dry-run
+    python eval/clean_datasets.py --cap jayavibhav=25000    # override a cap
+    python eval/clean_datasets.py --no-cap                  # keep everything
 
 Guiding rule: **remove artifacts, never remove signal.**
 
@@ -12,6 +14,11 @@ Applied (artifact removal - safe):
   * drop empty or near-empty rows
   * drop exact and near duplicates
   * drop rows whose normalized text carries conflicting labels
+
+Applied (corpus balancing - see :data:`DATASET_CAPS`):
+  * cap any single source so it cannot dominate the corpus, stratified by
+    label and seeded. Runs *after* deduplication so the cap describes the
+    final corpus rather than a pre-dedup count that shrinks unpredictably.
 
 NOT applied, deliberately:
   * stopword removal, lemmatization, POS filtering - prompt injection lives in
@@ -31,6 +38,7 @@ from __future__ import annotations
 import argparse
 import csv
 import html
+import random
 import re
 import sys
 import unicodedata
@@ -51,6 +59,44 @@ SPACES = re.compile(r"[ \t]{2,}")
 TRAILING_WS = re.compile(r"[ \t]+$", re.MULTILINE)
 
 MIN_LENGTH = 10
+
+#: Seed for the subsample draw. Fixed so the corpus is reproducible, which the
+#: thesis Reliability section commits to.
+SUBSAMPLE_SEED = 42
+
+#: dataset name -> maximum rows to keep after deduplication.
+#:
+#: ``jayavibhav`` is 261,738 rows against PromptShield's 43,425 combined, i.e.
+#: 86% of the corpus. Left uncapped, a Stage II classifier optimises for that
+#: one distribution and PromptShield - the application-representative source
+#: with a peer-reviewed paper behind it - becomes rounding error. The cap puts
+#: the two sources at rough parity so neither dictates the decision boundary.
+#: It is not a token-cost measure; it is a representativeness measure.
+DATASET_CAPS: dict[str, int] = {
+    "jayavibhav": 40_000,
+}
+
+
+@dataclass
+class SubsampleStat:
+    """Per-dataset record of what the cap removed, for the methodology table."""
+
+    before: int
+    after: int
+    benign_before: int
+    benign_after: int
+
+    @property
+    def malicious_before(self) -> int:
+        return self.before - self.benign_before
+
+    @property
+    def malicious_after(self) -> int:
+        return self.after - self.benign_after
+
+    @property
+    def capped(self) -> bool:
+        return self.after < self.before
 
 
 @dataclass
@@ -147,6 +193,77 @@ def clean(samples: Sequence[Sample], *, drop_conflicts: bool = True
     return kept, stats
 
 
+def subsample(
+    samples: Sequence[Sample],
+    caps: dict[str, int] | None = None,
+    *,
+    seed: int = SUBSAMPLE_SEED,
+) -> tuple[list[Sample], dict[str, SubsampleStat]]:
+    """Cap over-represented datasets, preserving each source's own class ratio.
+
+    Preserving the source ratio rather than forcing 50/50 is deliberate: a cap
+    is a size decision, and silently rebalancing classes at the same time would
+    hide a second, separate methodological choice inside it.
+
+    Relative row order within each dataset is preserved so the written CSV is
+    stable across runs and reviewable with a plain diff.
+    """
+    caps = DATASET_CAPS if caps is None else caps
+    stats: dict[str, SubsampleStat] = {}
+
+    # Index positions per dataset so unaffected sources pass through untouched.
+    positions: dict[str, list[int]] = defaultdict(list)
+    for index, sample in enumerate(samples):
+        positions[sample.dataset].append(index)
+
+    keep: set[int] = set()
+    for name, indices in positions.items():
+        benign = [i for i in indices if samples[i].label == 0]
+        malicious = [i for i in indices if samples[i].label != 0]
+        cap = caps.get(name)
+
+        if cap is None or cap >= len(indices):
+            keep.update(indices)
+            stats[name] = SubsampleStat(len(indices), len(indices),
+                                        len(benign), len(benign))
+            continue
+
+        # Allocate the cap in proportion to the source's existing balance,
+        # then hand any rounding remainder to the larger class.
+        n_benign = round(cap * len(benign) / len(indices))
+        n_benign = min(n_benign, len(benign))
+        n_malicious = min(cap - n_benign, len(malicious))
+        n_benign = min(cap - n_malicious, len(benign))
+
+        rng = random.Random(f"{seed}:{name}")
+        chosen = rng.sample(benign, n_benign) + rng.sample(malicious, n_malicious)
+        keep.update(chosen)
+        stats[name] = SubsampleStat(len(indices), n_benign + n_malicious,
+                                    len(benign), n_benign)
+
+    return [s for i, s in enumerate(samples) if i in keep], stats
+
+
+def parse_caps(entries: Sequence[str] | None) -> dict[str, int]:
+    """Turn ``["jayavibhav=25000"]`` into ``{"jayavibhav": 25000}``.
+
+    Overrides are merged onto :data:`DATASET_CAPS`; a value of ``0`` removes
+    the cap for that dataset.
+    """
+    caps = dict(DATASET_CAPS)
+    for entry in entries or []:
+        name, separator, raw = entry.partition("=")
+        name = name.strip()
+        if not separator or not name or not raw.strip().isdigit():
+            raise ValueError(f"--cap expects NAME=INTEGER, got {entry!r}")
+        limit = int(raw)
+        if limit:
+            caps[name] = limit
+        else:
+            caps.pop(name, None)
+    return caps
+
+
 def write_csv(samples: Sequence[Sample], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as handle:
@@ -154,6 +271,20 @@ def write_csv(samples: Sequence[Sample], path: Path) -> None:
         writer.writerow(["text", "label"])
         for sample in samples:
             writer.writerow([sample.text, sample.label])
+
+
+def print_subsample(stats: dict[str, SubsampleStat]) -> None:
+    affected = {k: v for k, v in stats.items() if v.capped}
+    if not affected:
+        return
+    print()
+    print("  Corpus balancing (cap applied after dedup, seed "
+          f"{SUBSAMPLE_SEED}, class ratio preserved)")
+    print(f"    {'Dataset':<24}{'before':>10}{'after':>10}"
+          f"{'benign':>10}{'malicious':>11}")
+    for name, s in sorted(affected.items()):
+        print(f"    {name:<24}{s.before:>10,}{s.after:>10,}"
+              f"{s.benign_after:>10,}{s.malicious_after:>11,}")
 
 
 def print_stats(stats: CleanStats, per_dataset: dict[str, int]) -> None:
@@ -193,7 +324,18 @@ def main() -> int:
     parser.add_argument("--per-dataset", action="store_true",
                         help="write one cleaned file per source dataset "
                              "(default: also writes a combined file)")
+    parser.add_argument("--cap", action="append", metavar="NAME=N",
+                        help="override a per-dataset cap; N=0 removes it. "
+                             f"Defaults: {DATASET_CAPS}")
+    parser.add_argument("--no-cap", action="store_true",
+                        help="keep every deduplicated row, ignoring DATASET_CAPS")
     args = parser.parse_args()
+
+    try:
+        caps = {} if args.no_cap else parse_caps(args.cap)
+    except ValueError as exc:
+        print(f"ERROR: {exc}")
+        return 1
 
     try:
         samples = load_directory(args.data)
@@ -201,13 +343,19 @@ def main() -> int:
         print(f"ERROR: {exc}")
         return 1
 
-    kept, stats = clean(samples, drop_conflicts=not args.keep_conflicts)
+    cleaned, stats = clean(samples, drop_conflicts=not args.keep_conflicts)
+    kept, cap_stats = subsample(cleaned, caps)
 
     by_dataset: dict[str, list[Sample]] = defaultdict(list)
     for sample in kept:
         by_dataset[sample.dataset].append(sample)
 
+    # Cleaning stats stay pre-cap: artifact removal and corpus balancing are
+    # separate decisions and the thesis has to be able to report them apart.
     print_stats(stats, {k: len(v) for k, v in by_dataset.items()})
+    print_subsample(cap_stats)
+    print(f"  final corpus            {len(kept):>10,}")
+    print()
 
     if args.dry_run:
         print("  (dry run - nothing written)\n")

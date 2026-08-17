@@ -27,9 +27,22 @@ DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 #: name with byte-identical READMEs; this is the original - oldest upload and
 #: by far the most downloads. Provenance matters when the thesis cites it.
 SOURCES: dict[str, tuple[str, list[str]]] = {
-    "deepset": ("deepset/prompt-injections", ["train"]),
     "jayavibhav": ("jayavibhav/prompt-injection", ["train"]),
     "promptshield": ("hendzh/PromptShield", ["train", "validation", "test"]),
+}
+
+#: name -> (hub id, why it is not fetched)
+#:
+#: Kept visible rather than deleted: a reader of the thesis should be able to
+#: see which candidate corpora were considered and why each was rejected.
+EXCLUDED: dict[str, tuple[str, str]] = {
+    "deepset": (
+        "deepset/prompt-injections",
+        "all 546 rows are byte-identical duplicates of rows already in "
+        "jayavibhav (verified by SHA-1 over the raw text). It adds zero new "
+        "examples and would inflate the reported corpus size. Re-verify with "
+        "`python eval/audit_datasets.py` -> 'Cross-dataset overlap'.",
+    ),
 }
 
 
@@ -78,6 +91,10 @@ def main() -> int:
         print("\nAvailable datasets:")
         for name, (hub_id, splits) in SOURCES.items():
             print(f"  {name:<14} {hub_id} [{', '.join(splits)}]")
+        print("\nExcluded (not fetched):")
+        for name, (hub_id, reason) in EXCLUDED.items():
+            print(f"  {name:<14} {hub_id}")
+            print(f"  {'':<14} reason: {reason}")
         print()
         return 0
 
@@ -92,6 +109,11 @@ def main() -> int:
         return 1
 
     selected = args.names or list(SOURCES)
+    for name in selected:
+        if name in EXCLUDED:
+            print(f"\n'{name}' is deliberately excluded from the corpus.\n"
+                  f"  {EXCLUDED[name][1]}\n")
+            return 1
     unknown = [n for n in selected if n not in SOURCES]
     if unknown:
         print(f"Unknown dataset(s): {', '.join(unknown)}. Known: {', '.join(SOURCES)}")

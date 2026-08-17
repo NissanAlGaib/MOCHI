@@ -129,20 +129,23 @@ DATA = [
 
     ("D2", "deepset/prompt-injections is entirely contained in jayavibhav",
      "Dataset audit",
-     "All 546 deepset texts appear verbatim inside jayavibhav - 100% overlap. "
-     "deepset contributes zero new information. Either drop it from the corpus "
-     "or disclose the subset relationship; presenting them as two independent "
-     "sources in the Dataset Composition table would be misleading.",
-     "DECISION NEEDED", "Verified by SHA-1 comparison of all 546 texts."),
+     "RESOLVED - dropped. All 546 deepset texts appear verbatim inside "
+     "jayavibhav (100% overlap, SHA-1 verified), so it contributes zero new "
+     "examples and listing it as an independent source would inflate the "
+     "reported corpus size. Removed from eval/fetch_datasets.py SOURCES and "
+     "recorded in an EXCLUDED table with the reason; the file itself is moved "
+     "to data/excluded/ rather than deleted so the claim stays re-verifiable.",
+     "IMPLEMENTED", "eval/fetch_datasets.py EXCLUDED; data/excluded/deepset.csv."),
 
     ("D3", "Cross-dataset overlap creates train/test leakage",
      "Dataset audit",
      "Measured: 17 exact and 97 near duplicates between jayavibhav and "
      "promptshield_test; 29 near duplicates between promptshield_train and "
      "promptshield_validation. Training on jayavibhav and testing on "
-     "promptshield_test would leak ~114 samples. Deduplication before splitting "
-     "is implemented and must be run before Phase 8.",
-     "PARTIAL", "eval/clean_datasets.py written; not yet applied to the corpus."),
+     "promptshield_test would leak ~114 samples. Deduplication before "
+     "splitting is now applied to the corpus: 358 exact, 420 near, 319 "
+     "label-conflict and 76 empty rows removed (305,162 -> 303,989).",
+     "IMPLEMENTED", "data/clean/ written by eval/clean_datasets.py."),
 
     ("D4", "254-322 rows carry contradictory labels",
      "Dataset audit",
@@ -165,11 +168,15 @@ DATA = [
      "Dataset audit",
      "261,737 of 305,708 samples (86%). Its benign half is general "
      "instruction-following text (maths word problems etc.), not the banking / "
-     "travel / workspace / email traffic the thesis describes. Recommend "
-     "stratified subsampling to ~40-50k for Stage II training, and weighting "
-     "headline FPR claims toward PromptShield, whose benign samples are closer "
-     "to realistic application traffic.",
-     "DECISION NEEDED", "Affects Table 11 composition and FPR interpretation."),
+     "travel / workspace / email traffic the thesis describes. RESOLVED - "
+     "capped at 40,000 rows after deduplication, stratified by label and "
+     "seeded (seed 42), giving 40,000 jayavibhav against 42,765 PromptShield: "
+     "rough parity, so neither source dictates the Stage II decision boundary. "
+     "The cap preserves jayavibhav's own class ratio rather than forcing 50/50, "
+     "so it remains a size decision only. Headline FPR claims should still be "
+     "weighted toward PromptShield, whose benign samples are closer to "
+     "realistic application traffic.",
+     "IMPLEMENTED", "DATASET_CAPS in eval/clean_datasets.py; --no-cap disables."),
 
     ("D7", "PromptShield identity on Hugging Face was ambiguous",
      "Dataset acquisition",
@@ -194,10 +201,12 @@ THESIS = [
     ("T1", "Table 11 Dataset Composition cites unavailable data",
      "Follows from D1",
      "Replace the MCP-ATTACKBENCH / PromptShield / AgentDojo rows and the "
-     "97,448 total with the actual corpus: PromptShield 43,425 (official "
-     "splits), jayavibhav 261,737, deepset 546 (disclose as jayavibhav subset). "
-     "State that MCP-ATTACKBENCH was unavailable at time of writing.",
-     "THESIS EDIT", "Chapter III, Table 11."),
+     "97,448 total with the final corpus as built: PromptShield 42,765 "
+     "(official splits, post-dedup) and jayavibhav 40,000 (capped, post-dedup), "
+     "total 82,765 - 46,927 benign / 35,838 malicious, 43.3% malicious. "
+     "State that MCP-ATTACKBENCH was unavailable at time of writing, and that "
+     "deepset/prompt-injections was excluded as a proper subset of jayavibhav.",
+     "THESIS EDIT", "Chapter III, Table 11. Numbers from data/clean/."),
 
     ("T2", "Table 12 Data Splits numbers are placeholders",
      "Follows from D8",
@@ -333,12 +342,11 @@ DECISIONS = [
     ("Q2", "Is POS/stopword removal from prompts approved or rejected?",
      "Recommendation: reject for prompt content (destroys detection signal and "
      "breaks transparency); accept POS tagging as a detection signal instead."),
-    ("Q3", "Keep or drop deepset?",
-     "It is a 100% subset of jayavibhav. Recommendation: drop from the corpus, "
-     "retain the citation with the subset relationship disclosed."),
-    ("Q4", "Subsample jayavibhav?",
-     "86% of the corpus and not application-representative. Recommendation: "
-     "stratified subsample to ~40-50k for training."),
+    ("Q3", "Keep or drop deepset? - ANSWERED: drop",
+     "Dropped. See D2. Retain the citation in Chapter II with the subset "
+     "relationship to jayavibhav disclosed."),
+    ("Q4", "Subsample jayavibhav? - ANSWERED: yes, capped at 40,000",
+     "Capped. See D6. Final corpus 82,765 at 43.3% malicious."),
     ("Q5", "Build the spaCy imperative detector (Stage 1.5)?",
      "Highest-value remaining lever on the 5.2% Stage I recall, and a "
      "defensible research contribution distinct from more regex."),
