@@ -91,6 +91,17 @@ class DetectionResults(BaseModel):
     stage_1_syntactic: str = StageOutcome.NOT_RUN
     stage_2_semantic: str = StageOutcome.NOT_RUN
     stage_3_arbitration: str = StageOutcome.NOT_APPLICABLE
+    #: Stage II maximum window score in [0, 1] (Phase 8). ``None`` when not run.
+    semantic_score: float | None = None
+    #: Character offsets of the highest-scoring window in the segment text.
+    #:
+    #: This is the Stage II answer to "which part of the input drove the
+    #: prediction". Stage I answers it with an exact regex span; Stage II
+    #: answers it with a window plus :attr:`attributed_tokens`. Phase 10's
+    #: SANITIZE action needs one of the two to know what to redact.
+    semantic_span: tuple[int, int] | None = None
+    #: Highest attention-weighted tokens from the winning window, best first.
+    attributed_tokens: list[str] = Field(default_factory=list)
     #: Contribution this turn made to the session's rolling risk (Phase 7).
     session_risk_contribution: float | None = None
     #: Session cumulative risk after this turn (Phase 7).

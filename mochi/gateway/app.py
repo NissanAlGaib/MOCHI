@@ -45,13 +45,30 @@ async def lifespan(app: FastAPI):
     app.state.settings = settings
     app.state.adapter = get_adapter(settings.target_llm_provider)
     app.state.telemetry_writer = TelemetryWriter(settings.log_path)
+
+    # Stage II holds a ~500 MB model, so exactly one instance is built here and
+    # reused for the process lifetime. Loading is eager and failure is fatal:
+    # a gateway that silently ran Stage I only, while its operator believed
+    # Stage II was active, would produce a false sense of coverage.
+    app.state.stage2 = None
+    if settings.enable_stage2:
+        from mochi.detect.stage2_semantic import get_detector as get_stage2
+
+        app.state.stage2 = get_stage2(settings.stage2_model_dir or None)
+        app.state.stage2.scorer.score(["warmup"])  # surface load errors now
+        logger.info("Stage II enabled - model=%s",
+                    settings.stage2_model_dir or "models/e5-fine-tuned")
+
     logger.info(
-        "MOCHI %s ready - provider=%s default_model=%s log=%s payloads=%s",
+        "MOCHI %s ready - provider=%s default_model=%s log=%s payloads=%s "
+        "stage1=%s stage2=%s",
         __version__,
         settings.target_llm_provider,
         settings.target_llm_model,
         settings.log_path,
         settings.log_payloads,
+        settings.enable_stage1,
+        settings.enable_stage2,
     )
     try:
         yield
@@ -102,16 +119,16 @@ async def telemetry_middleware(request: Request, call_next):
 
 
 async def inspect_request(payload: ChatCompletionRequest,
-                          record: TelemetryRecord) -> InspectionResult:
+                          record: TelemetryRecord,
+                          *, app_state: Any = None) -> InspectionResult:
     """Detection seam.
 
-    Through Phase 4 this segments the payload by source, normalizes each
-    segment, and records what it found - but reaches no verdict. Later phases
-    extend :func:`mochi.detect.pipeline.inspect` in place:
+    Segments the payload by source, normalizes each segment, and runs the
+    detection cascade. Stages I and II reach a verdict but nothing enforces it
+    yet - see Phase 10. Later phases extend
+    :func:`mochi.detect.pipeline.inspect` in place:
 
-    * Phase 6  - Stage I syntactic filtering (sets ``detection_results.stage_1_syntactic``)
     * Phase 7  - session risk accumulation (sets ``session_risk_contribution``)
-    * Phase 8  - Stage II semantic detection (sets ``detection_results.stage_2_semantic``)
     * Phase 9  - Stage III cognitive arbitration (sets ``stage_3_arbitration``)
     * Phase 10 - ALLOW / BLOCK / SANITIZE enforcement, using each segment's
       trust level to decide between blocking and redacting
@@ -119,7 +136,16 @@ async def inspect_request(payload: ChatCompletionRequest,
     Enforcement will surface as a raised decision exception (BLOCK) or a
     mutated payload (SANITIZE).
     """
-    return inspect(payload, record)
+    settings = get_settings()
+    stage2 = getattr(app_state, "stage2", None) if app_state is not None else None
+    return inspect(
+        payload,
+        record,
+        block_severity=settings.block_severity,
+        enable_stage1=settings.enable_stage1,
+        enable_stage2=settings.enable_stage2 and stage2 is not None,
+        stage2=stage2,
+    )
 
 
 def _error(status_code: int, message: str, *,
@@ -179,7 +205,7 @@ async def chat_completions(request: Request) -> Any:
         )
 
     with stage_timer(record.latency, "inspection"):
-        await inspect_request(parsed, record)
+        await inspect_request(parsed, record, app_state=request.app.state)
 
     # Phase 10 will set this from the pipeline decision. Until enforcement
     # exists, everything that reaches dispatch was allowed through.

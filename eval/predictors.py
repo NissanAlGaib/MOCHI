@@ -85,19 +85,44 @@ class NoDefensePredictor:
         return Prediction(label=0, record=record, latency_ms=0.0)
 
 
+#: Which stages each ablation configuration turns on. This *is* Table 10's
+#: ablation - a config that silently ran more stages than its name claims would
+#: make the whole ablation meaningless, so the mapping is data, not branching.
+STAGE_CONFIGS: dict[str, tuple[bool, bool]] = {
+    # name        (stage1, stage2)
+    "stage1":     (True, False),
+    "stage2":     (False, True),   # Stage II alone, to isolate its contribution
+    "stage12":    (True, True),
+    "full":       (True, True),    # Stage III joins here in Phase 9
+}
+
+
 class MochiPredictor:
     """Runs the real MOCHI inspection pipeline.
 
     Args:
-        stages: Which stages to enable, for the ablation in Table 10
-            ("Stage I only", "Stage I+II", "Full MOCHI"). Accepted now so the
-            CLI surface is stable; enforcement arrives with the stages
-            themselves in Phases 6/8/9.
+        stages: Which stages to enable, per :data:`STAGE_CONFIGS`.
+        stage2: Detector to use when the config enables Stage II. Injectable so
+            the ablation can be run against a stub, and so one loaded model is
+            shared across an entire evaluation run instead of being rebuilt per
+            sample.
     """
 
-    def __init__(self, stages: str = "full") -> None:
+    def __init__(self, stages: str = "full", *, stage2=None) -> None:
+        if stages not in STAGE_CONFIGS:
+            raise ValueError(
+                f"Unknown configuration {stages!r}. "
+                f"Choose from: {', '.join(STAGE_CONFIGS)}"
+            )
         self.stages = stages
         self.name = f"mochi_{stages}"
+        self.enable_stage1, self.enable_stage2 = STAGE_CONFIGS[stages]
+
+        if self.enable_stage2 and stage2 is None:
+            from mochi.detect.stage2_semantic import get_detector as get_stage2
+
+            stage2 = get_stage2()
+        self.stage2 = stage2
 
     def predict(self, sample: Sample) -> Prediction:
         record = TelemetryRecord()
@@ -107,7 +132,13 @@ class MochiPredictor:
         request = sample_to_request(sample)
 
         start = time.perf_counter()
-        inspect(request, record)
+        inspect(
+            request,
+            record,
+            enable_stage1=self.enable_stage1,
+            enable_stage2=self.enable_stage2,
+            stage2=self.stage2,
+        )
         elapsed_ms = (time.perf_counter() - start) * 1000
 
         record.latency.inspection_ms = round(elapsed_ms, 4)
@@ -120,18 +151,16 @@ class MochiPredictor:
 
 PREDICTORS: dict[str, type] = {
     "baseline": NoDefensePredictor,
-    "stage1": MochiPredictor,
-    "stage12": MochiPredictor,
-    "full": MochiPredictor,
+    **{name: MochiPredictor for name in STAGE_CONFIGS},
 }
 
 
-def get_predictor(config: str) -> Predictor:
+def get_predictor(config: str, *, stage2=None) -> Predictor:
     """Instantiate the predictor for an evaluation configuration."""
     if config == "baseline":
         return NoDefensePredictor()
-    if config in PREDICTORS:
-        return MochiPredictor(stages=config)
+    if config in STAGE_CONFIGS:
+        return MochiPredictor(stages=config, stage2=stage2)
     raise ValueError(
         f"Unknown configuration {config!r}. Choose from: {', '.join(PREDICTORS)}"
     )

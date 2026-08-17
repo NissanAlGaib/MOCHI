@@ -130,14 +130,39 @@ even with stub logic, so you always have something demoable and testable.
 
 ## Phase 8 — Stage II: Semantic Detection
 
-**Goal:** fine-tuned embedding classifier for the cases Stage I regex misses.
+**Goal:** fine-tuned embedding classifier for the cases Stage I regex misses. Stage I's measured recall of **0.0590** is the empirical case for this stage: a paraphrased attack contains no pattern from `patterns.json` and passes untouched.
 
-- `training/finetune_e5.ipynb` (run on Colab/GPU): fine-tune `multilingual-e5-small` on the combined labeled dataset per the thesis's training config (binary cross-entropy, Adam, lr 2e-5, batch 32, 3 epochs) — adjust batch size to what the free-tier GPU allows
-- Export weights to `models/e5-fine-tuned/`
-- `detect/stage2_semantic.py`: loads model, scores normalized text, applies 0.45/0.55 thresholds
-- Re-run Phase 5 harness with Stage I + II combined
+**Status: code complete, model not yet trained.**
 
-**Definition of done:** F1 improves over Stage I alone on the eval set; latency measured and compared against the NFR1 target (flag if `-large` is too slow, switch to `-small`).
+Built:
+- `detect/chunking.py` — sliding-window primitive shared with the Stage I long-document fix
+- `detect/stage2_semantic.py` — chunk → score → take max → attribute the winner; `SemanticScorer` protocol so torch is a lazy, optional dependency
+- `training/model.py` — E5 encoder + gated attention pooling head, with `save`/`load`
+- `training/finetune_e5.py` — Colab trainer; honours PromptShield's official splits, selects on validation F1
+- Wired into `pipeline.inspect(enable_stage2=..., stage2=...)`, `Settings.enable_stage2`, and gateway startup
+- Telemetry: `semantic_score`, `semantic_span`, `attributed_tokens`
+
+Remaining:
+- Train on Colab (`training/README.md`), export to `models/e5-fine-tuned/`
+- Re-run the harness with `--config stage12`
+
+### Three choices that differ from the library defaults
+
+Each because a measurement said the default was wrong. Do not "simplify" these back:
+
+| Choice | Library default | MOCHI | Measurement |
+|---|---|---|---|
+| Pooling | mean (`sentence-transformers`) | **gated attention** | median malicious span is **3.4%** of its document; 72% under 5% |
+| Long input | `truncation=True` | **chunk + take max** | **14.8%** of attack signal sits in the document tail |
+| Aggregation across windows | — | **max, never mean** | a mean reproduces the dilution failure pooling was chosen to avoid |
+
+The max-over-windows rule is the multiple-instance-learning framing: the document is malicious if *any* window is. Attention weights double as the attribution signal, which is what Phase 10's SANITIZE needs to know what to redact.
+
+**Definition of done:** F1 improves over Stage I alone on the eval set; latency measured against NFR1; the corpus dilution tests in `tests/test_stage2.py` still pass with the real model (a mean-pooling regression fails those and nothing else).
+
+### Corpus caveat
+
+Only **3 of 82,765** samples exceed 20,000 characters. The benchmark corpus is almost entirely short prompts, so it cannot exercise the dilution and truncation behaviour that matters most for indirect injection via retrieved documents. Report Stage II's dilution handling from the synthetic tests, not from corpus metrics — the corpus is not representative of that deployment scenario.
 
 ---
 

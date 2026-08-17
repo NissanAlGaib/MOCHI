@@ -187,6 +187,52 @@ DATA = [
      "arXiv preprint ID alongside the ACM CODASPY DOI.",
      "IMPLEMENTED", "eval/fetch_datasets.py SOURCES, with provenance comment."),
 
+    ("D9", "Stage I silently truncated long documents at 20,000 characters",
+     "Adviser comment: 'what if 10 words but 1 word only malicious'",
+     "DEFECT, now FIXED. scan_text() cut every text to the first 20,000 chars "
+     "and still reported a clean 'pass', so any injection past that point was "
+     "invisible - the same tail-truncation failure D5 flagged for Stage II, "
+     "one stage earlier than anyone was looking. Its docstring claimed 'longer "
+     "input is chunked by the caller'; no caller chunked. Now scanned as "
+     "overlapping 20,000-char windows (512-char overlap so a boundary-straddling "
+     "payload is still seen whole), bounded at 100,000 chars total, and a scan "
+     "that hits the ceiling reports 'pass_truncated' instead of 'pass'. "
+     "Measured cost ~0.5 ms per 1,000 chars, so the earlier '<2 ms budget' "
+     "claim held only for short prompts.",
+     "IMPLEMENTED", "mochi/detect/chunking.py; 11 regression tests in "
+                    "tests/test_stage1.py."),
+
+    ("D10", "Malicious spans occupy a median 3.4% of their document",
+     "Adviser comments: 'context to the class label', 'which token can "
+     "contribute to the prediction'",
+     "MEASURED. Using Stage I's matched span as a proxy across 2,624 locatable "
+     "malicious samples: 72.0% of attacks occupy under 5% of their document, "
+     "21.0% occupy 5-10%, median 3.4%, worst case 0.0006%. The adviser's "
+     "'1 word in 10' is generous - reality is nearer 1 in 30. Consequence: "
+     "mean pooling (the sentence-transformers default) yields a document vector "
+     "that is ~97% benign text, so the malicious direction is averaged into "
+     "noise. Stage II therefore uses gated attention pooling and max-over-"
+     "windows, and reports the winning span plus top attributed tokens. "
+     "Formal framing for the thesis: multiple-instance learning (Ilse, Tomczak "
+     "& Welling, ICML 2018) - the bag carries the label, a few instances carry "
+     "the evidence. Caveat: the 2,624 sample is biased toward attacks Stage I "
+     "already catches; re-measure once Stage II can score spans on all 35,838.",
+     "IMPLEMENTED", "training/model.py AttentionPool; "
+                    "mochi/detect/stage2_semantic.py."),
+
+    ("D11", "The corpus cannot exercise the dilution problem it revealed",
+     "Follows from D9/D10",
+     "Only 3 of 82,765 cleaned samples exceed 20,000 characters, and 1 of "
+     "those is malicious. The corpus is almost entirely short prompts, so the "
+     "long-document truncation fix changes no corpus metric - and the "
+     "dilution behaviour that matters most for indirect injection via retrieved "
+     "documents cannot be measured on it at all. Report dilution handling from "
+     "the synthetic tests, and state plainly in Chapter III that the public "
+     "corpora are not representative of the indirect-injection deployment "
+     "scenario MOCHI targets. This is an argument for a purpose-built indirect "
+     "fixture set, which is what the Figure 12 attack simulation should become.",
+     "DECISION NEEDED", "Affects Chapter III Limitations and Phase 13 design."),
+
     ("D8", "PromptShield ships official train/validation/test splits",
      "Dataset acquisition",
      "18,909 / 1,000 / 23,516. Overlap between its own train and test is 1 row - "
@@ -319,11 +365,15 @@ PHASES = [
     ("5", "Evaluation harness", "IMPLEMENTED",
      "Metrics, 5-fold CV, H01-H06 significance testing"),
     ("6", "Stage I syntactic filtering", "IMPLEMENTED",
-     "P=0.9700 R=0.0521 F1=0.0989 FPR=0.0015, 0.43 ms mean"),
+     "On the balanced corpus: P=0.9728 R=0.0590 F1=0.1112 FPR=0.0013, "
+     "0.550 ms mean / 1.611 ms p95. Long-document scanning fixed (see D9)."),
     ("7", "Session risk accumulator", "NOT STARTED",
      "Approach agreed; addresses T5 and multi-step chains"),
-    ("8", "Stage II semantic detection", "NOT STARTED",
-     "Requires GPU fine-tune of multilingual-e5; recall should rise sharply"),
+    ("8", "Stage II semantic detection", "PARTIAL",
+     "Code complete and fully tested through a stub scorer (44 tests); model "
+     "not yet trained. Chunk-and-take-max, gated attention pooling, and span "
+     "attribution implemented per D5/D10. Remaining: Colab fine-tune and "
+     "export to models/e5-fine-tuned/."),
     ("9", "Stage III cognitive arbitration", "NOT STARTED", "LLM arbiter"),
     ("10", "Enforcement and sanitization", "NOT STARTED",
      "ALLOW / BLOCK / SANITIZE using segment trust"),
@@ -347,6 +397,10 @@ DECISIONS = [
      "relationship to jayavibhav disclosed."),
     ("Q4", "Subsample jayavibhav? - ANSWERED: yes, capped at 40,000",
      "Capped. See D6. Final corpus 82,765 at 43.3% malicious."),
+    ("Q8", "Build a purpose-built indirect-injection fixture set? - see D11",
+     "The public corpora are 99.996% short prompts, so they cannot test the "
+     "long-document dilution case that is MOCHI's main claimed value. "
+     "Recommendation: yes - fold it into the Figure 12 attack simulation."),
     ("Q5", "Build the spaCy imperative detector (Stage 1.5)?",
      "Highest-value remaining lever on the 5.2% Stage I recall, and a "
      "defensible research contribution distinct from more regex."),

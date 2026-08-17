@@ -32,6 +32,10 @@ class Settings:
     request_timeout: float
     log_path: str
     log_payloads: bool
+    enable_stage1: bool
+    enable_stage2: bool
+    stage2_model_dir: str
+    block_severity: str
 
 
 def _get_int(name: str, default: int) -> int:
@@ -75,4 +79,12 @@ def get_settings() -> Settings:
         request_timeout=_get_float("MOCHI_REQUEST_TIMEOUT", 60.0),
         log_path=os.getenv("MOCHI_LOG_PATH", "logs/mochi.jsonl").strip(),
         log_payloads=_get_bool("MOCHI_LOG_PAYLOADS", False),
+        enable_stage1=_get_bool("MOCHI_ENABLE_STAGE1", True),
+        # Stage II defaults off: it needs torch and a trained model, and the
+        # gateway must start without either. Turning it on with no model in
+        # place raises ModelUnavailable at startup with instructions, rather
+        # than silently degrading to Stage I only.
+        enable_stage2=_get_bool("MOCHI_ENABLE_STAGE2", False),
+        stage2_model_dir=os.getenv("MOCHI_STAGE2_MODEL_DIR", "").strip(),
+        block_severity=os.getenv("MOCHI_BLOCK_SEVERITY", "high").strip().lower(),
     )
