@@ -34,6 +34,15 @@ class SeverityLevel(StrEnum):
     HIGH = "high"
 
 
+class OutboundAction(StrEnum):
+    """What outbound inspection did to the response (Phase 11)."""
+
+    NOT_RUN = "not_run"
+    ALLOW = "allow"
+    REDACT = "redact"
+    BLOCK = "block"
+
+
 class StageOutcome(StrEnum):
     NOT_RUN = "not_run"
     PASS = "pass"
@@ -122,6 +131,8 @@ class LatencyBreakdown(BaseModel):
     stage_3_ms: float | None = None
     inspection_ms: float | None = None
     upstream_ms: float | None = None
+    #: Outbound response inspection (Phase 11).
+    outbound_ms: float | None = None
     total_ms: float | None = None
 
 
@@ -161,6 +172,18 @@ class TelemetryRecord(BaseModel):
     #: How many spans were actually removed. Zero on a SANITIZE means redaction
     #: failed and the request was escalated to BLOCK - see mochi.mitigate.
     spans_redacted: int = 0
+
+    # --- outbound inspection (Phase 11) ---
+    #: What was done to the model's response: allow / redact / block.
+    outbound_action: str = OutboundAction.NOT_RUN
+    #: Highest exfiltration risk found among URLs in the response.
+    outbound_exfiltration_risk: str | None = None
+    #: URLs stripped from the response because they carried data outward.
+    outbound_urls_removed: int = 0
+    #: Response spans removed for quoting protected instructions verbatim.
+    outbound_leaked_spans: int = 0
+    #: Operator-facing summaries of what outbound inspection did.
+    outbound_findings: list[str] = Field(default_factory=list)
 
     latency: LatencyBreakdown = Field(default_factory=LatencyBreakdown)
 

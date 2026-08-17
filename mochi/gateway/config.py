@@ -43,6 +43,9 @@ class Settings:
     enable_session_risk: bool
     session_window: int
     session_risk_threshold: float
+    enable_outbound: bool
+    outbound_remove_click_urls: bool
+    allow_buffered_streaming: bool
 
 
 def _get_int(name: str, default: int) -> int:
@@ -109,4 +112,16 @@ def get_settings() -> Settings:
         session_risk_threshold=_get_float(
             "MOCHI_SESSION_RISK_THRESHOLD", DEFAULT_THRESHOLD
         ),
+        # Outbound response inspection. On by default: it is pure regex over the
+        # response body and it is the only defence against markdown-image
+        # exfiltration, which no inbound check can see.
+        enable_outbound=_get_bool("MOCHI_ENABLE_OUTBOUND", True),
+        # Also strip click-required links carrying data. Off gives the narrower,
+        # higher-precision auto-fetch-only arm for the ablation.
+        outbound_remove_click_urls=_get_bool("MOCHI_OUTBOUND_REMOVE_LINKS", True),
+        # Serve stream=true by buffering the whole response, scanning it, then
+        # emitting it as one SSE burst. Off by default because it is not
+        # incremental streaming and callers should opt in knowingly - see
+        # docs/BUILD_PLAN.md Phase 11.
+        allow_buffered_streaming=_get_bool("MOCHI_ALLOW_BUFFERED_STREAMING", False),
     )

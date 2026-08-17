@@ -187,6 +187,23 @@ DATA = [
      "arXiv preprint ID alongside the ACM CODASPY DOI.",
      "IMPLEMENTED", "eval/fetch_datasets.py SOURCES, with provenance comment."),
 
+    ("D13", "Length-based URL scoring would flag ordinary article links",
+     "Phase 11 implementation, caught before merge",
+     "The first exfiltration heuristic treated any URL component over 32 "
+     "characters as carried data. That flags "
+     "'https://www.theverge.com/2024/01/15/some-long-article-slug' - a readable "
+     "path, not a payload - and would have stripped citations out of ordinary "
+     "answers, which breaks the product more often than an attacker exploits "
+     "it. Replaced with specific signals: base64 padding at 12+ chars, hex-only "
+     "at 24+, mixed upper/lower/digit with no spaces at 24+, any value at 64+, "
+     "or an unbroken alphanumeric run at 32+. Query values are scored "
+     "individually rather than as one blob. Validated against 12 real URL "
+     "shapes including dated slugs, UUIDs and UTM parameters - all pass, while "
+     "4 exfiltration forms are still caught. Worth stating in Chapter IV: for "
+     "an outbound scanner the false-positive rate, not the detection rate, is "
+     "the binding constraint.",
+     "IMPLEMENTED", "mochi/mitigate/url_scanner.py; 12 FP-guard tests."),
+
     ("D12", "Span-level redaction left the exfiltration target in the prompt",
      "Found by running demo/enforcement_demo.py",
      "DEFECT, now FIXED. Sanitisation originally removed the detector's matched "
@@ -399,8 +416,13 @@ PHASES = [
      "the gateway detected attacks and forwarded them anyway. Resolves the "
      "Stage II uncertain band by trust rather than an LLM arbiter (Q7). "
      "31 tests; demo/enforcement_demo.py covers 9 scenarios."),
-    ("11", "Outbound interception", "NOT STARTED",
-     "Leaked-instruction and URL-exfiltration scanning"),
+    ("11", "Outbound interception", "IMPLEMENTED",
+     "Markdown-image / HTML-img / fragment / data-URI exfiltration detection "
+     "plus verbatim system-prompt disclosure. Risk requires BOTH auto-fetch "
+     "and a data-carrying component, which is what keeps citations and genuine "
+     "images intact. 53 tests; demo/exfiltration_demo.py scores 10/10 including "
+     "5 false-positive guards. Buffered streaming available behind a flag; "
+     "incremental streaming still unimplemented."),
     ("12", "Multi-provider adapters", "PARTIAL",
      "Interface built; only the OpenAI adapter exists"),
     ("13", "Full evaluation", "NOT STARTED", "Chapters IV tables"),

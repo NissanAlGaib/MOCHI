@@ -1,30 +1,38 @@
 """MOCHI gateway application.
 
-Phase 1 scope: a working OpenAI-compatible reverse proxy. A client changes
-only its ``base_url`` and traffic flows client -> MOCHI -> target LLM ->
-client. Detection is not wired in yet; :func:`inspect_request` is the single
-seam where the Phase 3-10 pipeline attaches.
+An OpenAI-compatible reverse proxy. A client changes only its ``base_url`` and
+traffic flows client -> MOCHI -> target LLM -> client.
 
-Phase 2 adds structured JSON telemetry: every inspected request emits one
-record regardless of outcome.
+The request path, in order:
+
+1. parse and segment by source trust (Phase 4)
+2. normalize and de-obfuscate each segment (Phase 3)
+3. Stage I syntactic, then Stage II semantic detection (Phases 6, 8)
+4. accumulate session risk across turns (Phase 7)
+5. enforce ALLOW / BLOCK / SANITIZE (Phase 10)
+6. dispatch upstream
+7. inspect the response for exfiltration and disclosure (Phase 11)
+
+Every request emits one telemetry record regardless of outcome (Phase 2).
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from mochi import __version__
 from mochi.detect import InspectionResult, inspect
 from mochi.gateway.adapters import UpstreamError, get_adapter
 from mochi.gateway.config import get_settings
 from mochi.gateway.models import ChatCompletionRequest
-from mochi.mitigate import BLOCK_STATUS, enforce
+from mochi.mitigate import BLOCK_STATUS, enforce, protected_text, scan_completion
 from mochi.session import RiskAccumulator
 from mochi.telemetry import (
     MitigationAction,
@@ -211,15 +219,18 @@ async def chat_completions(request: Request) -> Any:
         parsed.inspectable_text(), include_content=settings.log_payloads
     )
 
-    if parsed.stream:
-        # Streaming is deferred: Phase 11 outbound interception needs the full
-        # response body to scan for leaked instructions and exfiltration URLs,
-        # so a streaming path would have to be buffered anyway. Failing loudly
-        # now beats silently skipping outbound checks later.
+    if parsed.stream and not settings.allow_buffered_streaming:
+        # Outbound inspection (Phase 11) needs the whole body: an exfiltration
+        # URL can straddle two chunks, so scanning chunk-by-chunk would miss the
+        # split case. Buffered streaming is available behind
+        # MOCHI_ALLOW_BUFFERED_STREAMING, but it is not *incremental* streaming
+        # and the caller should choose it knowingly rather than discover it.
         return _error(
             501,
-            "Streaming responses are not supported yet. Set stream=false. "
-            "See docs/BUILD_PLAN.md Phase 11.",
+            "Streaming is not supported by default: outbound inspection needs "
+            "the complete response body. Set stream=false, or enable "
+            "MOCHI_ALLOW_BUFFERED_STREAMING to receive the full response as a "
+            "single stream event. Incremental streaming is not implemented.",
         )
 
     with stage_timer(record.latency, "inspection"):
@@ -246,15 +257,69 @@ async def chat_completions(request: Request) -> Any:
         return _error(BLOCK_STATUS, verdict.reason,
                       extra={"request_id": record.request_id})
 
+    # ``stream`` is dropped before dispatch even in buffered mode: MOCHI needs the
+    # complete body from the provider, then re-frames it as a stream itself.
     upstream_body = parsed.upstream_payload(default_model=settings.target_llm_model)
+    wants_stream = bool(upstream_body.pop("stream", False))
 
     try:
         with stage_timer(record.latency, "upstream"):
-            return await request.app.state.adapter.chat_completion(upstream_body)
+            completion = await request.app.state.adapter.chat_completion(upstream_body)
     except UpstreamError as exc:
         logger.warning("Upstream error: %s", exc)
         record.mitigation_action_applied = MitigationAction.NOT_APPLICABLE
         return _error(exc.status_code, str(exc), payload=exc.payload)
+
+    # --- outbound interception (Phase 11) ---
+    if settings.enable_outbound:
+        with stage_timer(record.latency, "outbound"):
+            outbound = scan_completion(
+                completion,
+                protected=protected_text(inspection.segments),
+                remove_click_urls=settings.outbound_remove_click_urls,
+            )
+        record.outbound_action = outbound.action
+        record.outbound_exfiltration_risk = outbound.exfiltration_risk
+        record.outbound_urls_removed = outbound.urls_removed
+        record.outbound_leaked_spans = outbound.leaked_spans
+        record.outbound_findings = list(outbound.findings)
+        if outbound.modified:
+            logger.info("OUTBOUND redact %s - %s", record.request_id,
+                        "; ".join(outbound.findings))
+
+    if wants_stream:
+        return _as_stream(completion)
+    return completion
+
+
+def _as_stream(completion: dict[str, Any]) -> StreamingResponse:
+    """Re-frame an inspected completion as a single-event SSE stream.
+
+    This keeps ``stream=true`` clients working without giving up outbound
+    inspection. It is *not* incremental streaming - the whole response arrives at
+    once - and the 501 path above says so, so no caller can mistake it for
+    token-by-token delivery.
+    """
+    chunk = {
+        "id": completion.get("id", ""),
+        "object": "chat.completion.chunk",
+        "created": completion.get("created", 0),
+        "model": completion.get("model", ""),
+        "choices": [
+            {
+                "index": choice.get("index", index),
+                "delta": choice.get("message", {}),
+                "finish_reason": choice.get("finish_reason"),
+            }
+            for index, choice in enumerate(completion.get("choices") or [])
+        ],
+    }
+
+    def emit():
+        yield f"data: {json.dumps(chunk)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(emit(), media_type="text/event-stream")
 
 
 def main() -> None:
