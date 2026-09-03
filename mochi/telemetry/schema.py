@@ -82,15 +82,24 @@ class PayloadCharacteristics(BaseModel):
 
     char_length: int = 0
     token_length: int = 0
-    language: str | None = None  # populated in Phase 3 (normalization layer)
+    language: str | None = None
+    """``english`` | ``tagalog`` | ``mixed`` | ``unknown`` (Phase 3 amendment).
+
+    Recorded so a deployment can audit its own traffic for the bias the corpus
+    carries: benign requests blocked at a higher rate in one language than
+    another is measurable from these records, and invisible without them.
+    Scope is English-Tagalog; other languages report ``unknown`` rather than
+    being guessed at."""
     content_sha256: str | None = None
     content: str | None = None
 
     @classmethod
-    def from_text(cls, text: str, *, include_content: bool) -> PayloadCharacteristics:
+    def from_text(cls, text: str, *, include_content: bool,
+                  language: str | None = None) -> PayloadCharacteristics:
         return cls(
             char_length=len(text),
             token_length=estimate_tokens(text),
+            language=language,
             content_sha256=hashlib.sha256(text.encode("utf-8")).hexdigest(),
             content=text if include_content else None,
         )

@@ -1,0 +1,388 @@
+<title>MOCHI Build Plan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap">
+
+<style>
+  :root {
+    --paper:#F3F5F5; --surface:#FFFFFF; --surface-2:#EAEEEE;
+    --ink:#101A1C; --ink-2:#3D4B4E; --ink-3:#67777A;
+    --rule:#CFD8D8; --rule-soft:#E1E7E7;
+    --accent:#0B6E75; --accent-dim:#E0EDED;
+    --crit:#A32B21; --crit-bg:#F7E4E2;
+    --warn:#8A5A00; --warn-bg:#F8EEDA;
+    --ok:#1B6339;   --ok-bg:#E1EFE6;
+    --new:#5B3E9E;  --new-bg:#ECE7F7;
+    --serif:"IBM Plex Serif",Georgia,serif;
+    --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+    --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+    --measure:70ch;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:#0D1315; --surface:#151E20; --surface-2:#1B2528;
+      --ink:#E3EAE9; --ink-2:#AFBEBF; --ink-3:#7C8D8F;
+      --rule:#242F32; --rule-soft:#1C2629;
+      --accent:#45A7AE; --accent-dim:#14312F;
+      --crit:#E58175; --crit-bg:#331A18;
+      --warn:#D6A544; --warn-bg:#2F2515;
+      --ok:#5FBB84;   --ok-bg:#162C1F;
+      --new:#B49CE8;  --new-bg:#231C38;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:#0D1315; --surface:#151E20; --surface-2:#1B2528;
+    --ink:#E3EAE9; --ink-2:#AFBEBF; --ink-3:#7C8D8F;
+    --rule:#242F32; --rule-soft:#1C2629;
+    --accent:#45A7AE; --accent-dim:#14312F;
+    --crit:#E58175; --crit-bg:#331A18;
+    --warn:#D6A544; --warn-bg:#2F2515;
+    --ok:#5FBB84;   --ok-bg:#162C1F;
+    --new:#B49CE8;  --new-bg:#231C38;
+  }
+
+  * { box-sizing: border-box; }
+  body { background: var(--paper); color: var(--ink); font-family: var(--sans);
+         font-size:16px; line-height:1.62; margin:0; -webkit-font-smoothing:antialiased; }
+  .page { max-width: 1020px; margin: 0 auto; padding: 0 28px 96px; }
+
+  header.mast { padding: 60px 0 30px; border-bottom: 2px solid var(--ink); }
+  .eyebrow { font-family: var(--mono); font-size:11px; letter-spacing:.14em;
+             text-transform:uppercase; color: var(--ink-3); margin:0 0 18px; }
+  h1 { font-family: var(--serif); font-weight:600; font-size:clamp(2.4rem,5.5vw,3.6rem);
+       line-height:1.05; letter-spacing:-.02em; margin:0 0 16px; text-wrap:balance; }
+  .standfirst { font-family: var(--serif); font-size:1.15rem; line-height:1.55;
+                color: var(--ink-2); max-width:60ch; margin:0; }
+  .byline { font-family: var(--mono); font-size:11.5px; color: var(--ink-3);
+            margin:22px 0 0; line-height:1.8; }
+
+  h2 { font-family: var(--serif); font-weight:600; font-size:clamp(1.5rem,3vw,1.95rem);
+       line-height:1.15; letter-spacing:-.015em; margin:0 0 8px; text-wrap:balance; }
+  h3 { font-family: var(--sans); font-weight:600; font-size:1rem; margin:32px 0 10px; }
+  section { padding-top: 58px; }
+  p { max-width: var(--measure); }
+  .lede { color: var(--ink-2); margin:0 0 24px; max-width: var(--measure); }
+  a { color: var(--accent); }
+  code { font-family: var(--mono); font-size:.85em; background: var(--surface-2);
+         padding:1px 5px; border-radius:2px; word-break:break-word; }
+  strong { font-weight:600; }
+
+  /* waves */
+  .waves { display:grid; gap:12px; margin:26px 0 8px; }
+  .wave { display:grid; grid-template-columns:56px 1fr; gap:18px;
+          border:1px solid var(--rule); background: var(--surface); padding:16px 18px; }
+  .wave.now { border-color: var(--accent); border-left:4px solid var(--accent); }
+  .wave .tag { font-family:var(--serif); font-size:1.9rem; line-height:1;
+               color: var(--accent); font-weight:600; }
+  .wave h4 { font-family:var(--sans); font-size:14.5px; font-weight:600; margin:0 0 5px;
+             display:flex; flex-wrap:wrap; gap:9px; align-items:center; }
+  .wave p { margin:0; font-size:13.5px; color: var(--ink-2); max-width:70ch; }
+  .wave .meta { font-family:var(--mono); font-size:11px; color:var(--ink-3); margin-top:7px; }
+
+  /* phase table */
+  .scroller { overflow-x:auto; border:1px solid var(--rule); background:var(--surface); margin:22px 0 8px; }
+  table { border-collapse:collapse; width:100%; font-size:13.5px; min-width:560px; }
+  caption { caption-side:top; text-align:left; font-family:var(--mono); font-size:10px;
+            letter-spacing:.12em; text-transform:uppercase; color:var(--ink-3); padding:14px 18px 10px; }
+  th { font-family:var(--mono); font-weight:500; font-size:10px; letter-spacing:.1em;
+       text-transform:uppercase; color:var(--ink-3); text-align:left; padding:10px 14px;
+       border-bottom:1px solid var(--rule); white-space:nowrap; }
+  td { padding:9px 14px; border-bottom:1px solid var(--rule-soft); vertical-align:top; }
+  tbody tr:last-child td { border-bottom:none; }
+  td.ph { font-family:var(--mono); font-size:12px; color:var(--ink-3); white-space:nowrap; }
+  tr.is-new td { background: var(--new-bg); }
+  tr.rule-top td { border-top:1px solid var(--rule); }
+  .muted { color: var(--ink-3); }
+  .mono-cell { font-family:var(--mono); font-size:11.5px; line-height:1.5; }
+
+  .chip { display:inline-block; font-family:var(--mono); font-size:9.5px; letter-spacing:.1em;
+          text-transform:uppercase; padding:3px 7px; border-radius:2px; white-space:nowrap; font-weight:500; }
+  .chip.ok{background:var(--ok-bg);color:var(--ok)}
+  .chip.warn{background:var(--warn-bg);color:var(--warn)}
+  .chip.crit{background:var(--crit-bg);color:var(--crit)}
+  .chip.new{background:var(--new-bg);color:var(--new)}
+  .chip.off{background:var(--surface-2);color:var(--ink-3)}
+  .chip.info{background:var(--accent-dim);color:var(--accent)}
+
+  .card { border:1px solid var(--rule); background:var(--surface); padding:20px 22px; margin:18px 0; }
+  .card.flag { border-left:4px solid var(--warn); }
+  .card.newp { border-left:4px solid var(--new); }
+  .card h4 { font-family:var(--sans); font-size:15px; font-weight:600; margin:0 0 4px;
+             display:flex; flex-wrap:wrap; gap:9px; align-items:center; }
+  .card .where { font-family:var(--mono); font-size:11px; color:var(--ink-3); margin:0 0 12px; }
+  .card p { font-size:14px; color:var(--ink-2); margin:0; max-width:72ch; }
+  .card p + p { margin-top:9px; }
+
+  ul.tight { margin:12px 0; padding-left:20px; max-width:var(--measure); }
+  ul.tight li { margin-bottom:8px; color:var(--ink-2); }
+
+  ol.steps { margin:14px 0; padding-left:0; list-style:none; counter-reset:s; max-width:var(--measure); }
+  ol.steps li { counter-increment:s; position:relative; padding-left:34px; margin-bottom:13px; color:var(--ink-2); font-size:14.5px; }
+  ol.steps li::before { content:counter(s); position:absolute; left:0; top:1px;
+                        font-family:var(--mono); font-size:11px; color:var(--crit);
+                        border:1px solid var(--crit); width:21px; height:21px;
+                        display:grid; place-items:center; border-radius:2px; }
+
+  footer { margin-top:72px; padding-top:20px; border-top:2px solid var(--ink);
+           font-family:var(--mono); font-size:11px; color:var(--ink-3); line-height:1.8; }
+</style>
+
+<div class="page">
+
+<header class="mast">
+  <p class="eyebrow">Revision 3 · 1 September 2026 · Wave A complete</p>
+  <h1>MOCHI Build Plan</h1>
+  <p class="standfirst">Twelve phases are committed and Wave A is done. One phase is omitted by design. What remains is sequenced against a single GPU and a defence date — and training Stage II is now the only thing standing between you and a results chapter.</p>
+  <p class="byline">
+    docs/BUILD_PLAN.md · +312 lines, 0 deletions · Wave A shipped 1 Sep 2026<br>
+    Hans Adrian A. Lao · Jelaine May C. Macias · Rosepel M. Maglangit
+  </p>
+</header>
+
+<section>
+  <h2>What changed in this revision</h2>
+  <p class="lede">Six adviser comments and the findings from the evidence audit. None of them reorder the existing plan — they insert two phases and add work to two others.</p>
+
+  <div class="scroller">
+    <table>
+      <caption>Amendments</caption>
+      <thead><tr><th>Change</th><th>Kind</th><th>Answers</th></tr></thead>
+      <tbody>
+        <tr class="is-new"><td><strong>Phase 6.5</strong> — Feature Extraction Layer</td><td><span class="chip new">New phase</span></td><td class="muted">A11 feature engineering · A12 keywords &amp; question marks</td></tr>
+        <tr class="is-new"><td><strong>Phase 8.5</strong> — BiLSTM / BiGRU baselines</td><td><span class="chip new">New phase</span></td><td class="muted">A13 model comparison</td></tr>
+        <tr><td><strong>Phase 3</strong> — language identification amendment</td><td><span class="chip info">Amended</span></td><td class="muted">A14 code-switching</td></tr>
+        <tr><td><strong>Phase 13</strong> — n-grams, word clouds, Taglish set, blocking fixes</td><td><span class="chip info">Amended</span></td><td class="muted">A9 · A10 · A14 · audit findings</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2>Three fixes that block everything downstream</h2>
+  <p class="lede">Cheap now. Expensive after a number has been quoted in a chapter.</p>
+
+  <ol class="steps">
+    <li><strong>Re-run Stage I on <code>data/clean/</code>.</strong> <code>reports/stage1.json</code> reports n=305,708 — the raw tree, including the 546 excluded deepset rows and an uncapped jayavibhav. The classical baselines ran on <code>data/clean/</code> at n=82,765. The two cannot appear in one comparison table.</li>
+    <li><strong>Regenerate <code>reports/coverage/</code>.</strong> The committed report says 69% and contains no detection module at all — it predates Phase 6. The true figure is 92% over 1,872 statements: wrong by 23 points, in the direction that understates the work.</li>
+    <li><strong>Update the README status table.</strong> It still lists Phase 6 as "Next" and 7–14 as not started, while 7, 8, 10 and 11 are committed.</li>
+  </ol>
+</section>
+
+<section>
+  <h2>Sequence</h2>
+  <p class="lede">Wave A is first on purpose: no GPU, it produces a Chapter IV draft, and it clears the blocking fixes before anything gets quoted.</p>
+
+  <div class="waves">
+    <div class="wave" style="border-left:4px solid var(--ok);border-color:var(--ok)">
+      <span class="tag" style="color:var(--ok)">A</span>
+      <div>
+        <h4>Blocking fixes · Phase 6.5 · n-grams · word clouds <span class="chip ok">Done 1 Sep 2026</span></h4>
+        <p>All three blocking fixes cleared. Feature layer shipped at 68 columns with 23 tests; the n-gram ablation and the log-odds word clouds are delivered. Suite is now 454 tests at 92% coverage.</p>
+        <p class="meta">mochi/preprocess/features.py · eval/build_features.py · eval/wordcloud_figures.py</p>
+      </div>
+    </div>
+    <div class="wave now">
+      <span class="tag">B</span>
+      <div>
+        <h4>Phase 8 — train Stage II <span class="chip crit">Critical path · start here</span></h4>
+        <p>Export weights, re-run the harness with <code>--config stage12</code>. Nothing in Wave C means anything until this exists.</p>
+        <p class="meta">Blocked by: local GPU — RTX 4070, 8 GB · ~2 days</p>
+      </div>
+    </div>
+    <div class="wave">
+      <span class="tag">C</span>
+      <div>
+        <h4>Phase 8.5 — BiLSTM and BiGRU ladder</h4>
+        <p>Six rungs, one table, latency and parameter count beside F1.</p>
+        <p class="meta">Blocked by: Wave B · ~1 week</p>
+      </div>
+    </div>
+    <div class="wave">
+      <span class="tag">D</span>
+      <div>
+        <h4>Phase 3 amendment · Taglish robustness set</h4>
+        <p>Language ID as a signal, plus ~400 held-out code-switched samples.</p>
+        <p class="meta">Blocked by: native-speaker validation · ~4 days</p>
+      </div>
+    </div>
+    <div class="wave">
+      <span class="tag">E</span>
+      <div>
+        <h4>Phases 12, 13, 14 — adapters, full evaluation, packaging</h4>
+        <p>Multi-provider adapters, all Chapter III tables populated, Docker.</p>
+        <p class="meta">Blocked by: Waves B–D · remainder</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="card flag">
+    <h4>8 GB VRAM constraint for Wave B</h4>
+    <p>The specified batch size of 32 at 512 tokens will not fit in fp32. Use fp16 or gradient accumulation, and <strong>record which</strong> — it is a reproducibility detail, and a panelist who trains models will ask.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Phase roadmap</h2>
+
+  <div class="scroller">
+    <table>
+      <caption>17 phases · 11 committed · 1 omitted by design · 2 new</caption>
+      <thead><tr><th>Phase</th><th>Name</th><th>Status</th><th>Remaining work</th></tr></thead>
+      <tbody>
+        <tr><td class="ph">0</td><td>Environment setup</td><td><span class="chip ok">Done</span></td><td class="muted">—</td></tr>
+        <tr><td class="ph">1</td><td>Gateway skeleton</td><td><span class="chip ok">Done</span></td><td class="muted">—</td></tr>
+        <tr><td class="ph">2</td><td>Telemetry</td><td><span class="chip ok">Done</span></td><td class="muted">—</td></tr>
+        <tr><td class="ph">3</td><td>Normalization layer</td><td><span class="chip ok">Done</span> <span class="chip info">Amended</span></td><td class="muted">Language ID + 2 flags</td></tr>
+        <tr><td class="ph">4</td><td>Source tagging</td><td><span class="chip ok">Done</span></td><td class="muted">—</td></tr>
+        <tr><td class="ph">5</td><td>Evaluation harness</td><td><span class="chip ok">Done</span></td><td class="muted">—</td></tr>
+        <tr><td class="ph">6</td><td>Stage I — syntactic filtering</td><td><span class="chip ok">Done</span></td><td class="muted">Re-run on clean corpus ✓</td></tr>
+        <tr><td class="ph">6.5</td><td><strong>Feature extraction layer</strong></td><td><span class="chip ok">Done</span></td><td class="muted">68 columns · 23 tests · 98% covered</td></tr>
+        <tr><td class="ph">7</td><td>Session risk accumulator</td><td><span class="chip ok">Done</span></td><td class="muted">—</td></tr>
+        <tr><td class="ph">8</td><td>Stage II — semantic detection</td><td><span class="chip warn">Code done, untrained</span></td><td class="muted">Train, export, re-measure</td></tr>
+        <tr class="is-new"><td class="ph">8.5</td><td><strong>BiLSTM / BiGRU baselines</strong></td><td><span class="chip new">New</span></td><td class="muted">Six-rung ladder</td></tr>
+        <tr><td class="ph">9</td><td>Stage III — cognitive arbitration</td><td><span class="chip off">Omitted</span></td><td class="muted">By design — register Q7</td></tr>
+        <tr><td class="ph">10</td><td>Enforcement + sanitization</td><td><span class="chip ok">Done</span></td><td class="muted">—</td></tr>
+        <tr><td class="ph">11</td><td>Outbound interception</td><td><span class="chip ok">Done</span></td><td class="muted">—</td></tr>
+        <tr><td class="ph">12</td><td>Target LLM adapters</td><td><span class="chip off">Not started</span></td><td class="muted">Anthropic + Gemini translators</td></tr>
+        <tr><td class="ph">13</td><td>Full evaluation</td><td><span class="chip off">Not started</span></td><td class="muted">+ n-grams, clouds, Taglish</td></tr>
+        <tr><td class="ph">14</td><td>Packaging</td><td><span class="chip off">Not started</span></td><td class="muted">Docker + compose</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2>Phase 6.5 — Feature Extraction Layer</h2>
+  <p class="lede">Materialise the engineered features as dataset columns, computed by the same code that runs at request time. Roughly half of them already exist and are simply thrown away on every request.</p>
+
+  <div class="card newp">
+    <h4>The rule that makes this worth doing</h4>
+    <p>Features are computed <strong>only</strong> in <code>mochi/preprocess/features.py</code>. <code>eval/build_features.py</code> imports that module; it does not reimplement anything.</p>
+    <p>A notebook that recomputes "question mark count" its own way will drift from the gateway, and on the day it does, every ablation number in Chapter IV becomes fiction — silently, with no test failing. This is the same train/serve constraint that killed POS/stopword removal in register item A2. The reasoning has not changed; only the feature has.</p>
+  </div>
+
+  <h3>Files</h3>
+  <ul class="tight">
+    <li><code>mochi/preprocess/features.py</code> — <strong>new.</strong> <code>FeatureVector</code> + <code>extract(text, norm_result, stage1_result)</code></li>
+    <li><code>mochi/preprocess/preprocessor.py</code> — surface features on the segment result</li>
+    <li><code>mochi/detect/segments.py</code> — <code>Segment.features</code>, optional so nothing breaks when extraction is off</li>
+    <li><code>mochi/telemetry/schema.py</code> — log the feature summary, so production traffic can be audited for the same biases as the corpus</li>
+    <li><code>eval/build_features.py</code> — <strong>new.</strong> Materialise <code>data/features/</code></li>
+  </ul>
+
+  <h3>Column families</h3>
+
+  <div class="scroller">
+    <table>
+      <caption>~55 columns · "free" means already computed and discarded</caption>
+      <thead><tr><th>Family</th><th>Columns</th><th>Cost</th></tr></thead>
+      <tbody>
+        <tr><td>Identity</td><td class="mono-cell">text_hash · dataset · split · source_tag · label</td><td><span class="chip ok">Free</span></td></tr>
+        <tr><td>Surface</td><td class="mono-cell">char_count · word_count · est_token_count · avg_word_len · line_count · max_line_len · uppercase_ratio · digit_ratio</td><td><span class="chip info">Cheap</span></td></tr>
+        <tr><td>Punctuation &amp; interrogative <span class="muted">A12</span></td><td class="mono-cell">question_mark_count · ends_with_question · question_ratio · exclamation_count · colon_count · quote_count · bracket_count · newline_ratio · special_char_ratio</td><td><span class="chip info">Cheap</span></td></tr>
+        <tr><td>Imperative structure <span class="muted">A12</span></td><td class="mono-cell">imperative_verb_count · starts_with_imperative · second_person_pronoun_count · modal_obligation_count · negation_count · instruction_verb_ratio</td><td><span class="chip warn">Blocked on Q1</span></td></tr>
+        <tr><td>Injection lexicon <span class="muted">A12</span></td><td class="mono-cell">stage1_hit_count · stage1_max_severity · stage1_detector_ids · hit_direct_injection · hit_indirect_injection · hit_jailbreak · hit_exfiltration · hit_role_manipulation · hit_url_exfiltration · hit_it_security</td><td><span class="chip ok">Free</span></td></tr>
+        <tr><td>Obfuscation</td><td class="mono-cell">has_zero_width · has_bidi · homoglyphs_normalized · mixed_script · nfkc_applied · base64_decoded · hex_decoded · rot13_decoded · url_decoded · decode_depth_exceeded · n_variants_recovered · decoded_char_gain · normalization_delta</td><td><span class="chip ok">Free</span></td></tr>
+        <tr><td>Language <span class="muted">A14</span></td><td class="mono-cell">dominant_script · detected_language · is_code_switched · tagalog_token_ratio · english_token_ratio · language_switch_count</td><td><span class="chip warn">Needs Phase 3</span></td></tr>
+        <tr><td>URL / entity</td><td class="mono-cell">url_count · has_markdown_image · has_auto_fetch_url · max_url_query_entropy · has_code_block · has_html_tag</td><td><span class="chip ok">Free</span></td></tr>
+        <tr><td>Position <span class="muted">D10</span></td><td class="mono-cell">first_hit_offset_ratio · payload_share · hit_region</td><td><span class="chip info">Cheap</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p><strong>The obfuscation family is the one to watch.</strong> Every flag in it is computed on every request and has never been written to a dataset, and it describes the <em>envelope</em> rather than the words — exactly the signal a TF-IDF model structurally cannot see. If any family earns its place in the hybrid ablation, it is most likely this one.</p>
+
+  <h3>Four ways this goes wrong</h3>
+  <ul class="tight">
+    <li><strong>Leakage.</strong> Any feature fitted on corpus statistics — log-odds, TF-IDF vocabulary, mined phrase lists — is fitted on <strong>train only</strong>. Fit on the full corpus and the ablation measures nothing.</li>
+    <li><strong>Circularity.</strong> <code>stage1_*</code> columns are legitimate features, but a model using them cannot then be cited as independent validation of Stage I.</li>
+    <li><strong>Length is a trap in this corpus.</strong> Median tokens run 16 (deepset) to 106 (promptshield_test). Length will look predictive for reasons unrelated to injection.</li>
+    <li><strong>The question-mark hypothesis may be the same trap.</strong> Test it, report the effect size, and if it is weak, say so. A negative result on an adviser's hypothesis is a finding.</li>
+  </ul>
+
+  <div class="card flag">
+    <h4>Where features may and may not be used</h4>
+    <p>Build the extractor, use it for EDA and the hybrid ablation. Wire it into the runtime decision path <strong>only if the ablation shows it earns a place.</strong> Adding an unvalidated signal to a security-critical path because it was easy to compute is how false-positive rates regress without anyone noticing.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Phase 8.5 — BiLSTM and BiGRU</h2>
+  <p class="lede">Show that the transformer earns its cost rather than asserting it. Sequenced after Phase 8, not before: comparing baselines against a model that has never been trained measures nothing.</p>
+
+  <div class="scroller">
+    <table>
+      <caption>The ladder — one table, six rows, increasing capability</caption>
+      <thead><tr><th>Rung</th><th>Model</th><th>Why it is on the ladder</th></tr></thead>
+      <tbody>
+        <tr><td class="ph">1</td><td>Stage I regex</td><td class="muted">The deployed fast path; precision ceiling, recall floor</td></tr>
+        <tr><td class="ph">2</td><td>TF-IDF + naive Bayes</td><td class="muted">The floor. A model that cannot beat it is learning nothing</td></tr>
+        <tr><td class="ph">3</td><td>TF-IDF + LinearSVC</td><td class="muted">Best classical result so far — F1 0.6966</td></tr>
+        <tr><td class="ph">4</td><td>BiLSTM</td><td class="muted">First model with sequence order</td></tr>
+        <tr><td class="ph">5</td><td>BiGRU</td><td class="muted">Same, fewer parameters — the interesting comparison is against 4, not 3</td></tr>
+        <tr><td class="ph">6</td><td>Fine-tuned E5 + attention pooling</td><td class="muted">MOCHI Stage II</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p><strong>Report latency and model size beside F1.</strong> MOCHI's thesis is a gateway with a budget, not a leaderboard entry. A recurrent model that reaches within a point or two of E5 at a fraction of the memory is a genuine finding and belongs in the discussion, not buried because it lost on F1.</p>
+
+  <div class="card flag">
+    <h4>Scope risk</h4>
+    <p>Keep the ladder to <strong>one table</strong>. The danger of this phase is a systems thesis quietly turning into a model-comparison thesis because the comparison was interesting.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Phase 3 amendment — language identification</h2>
+  <p class="lede">One function and two flags. No change to existing behaviour.</p>
+
+  <p><code>dominant_script()</code> detects mixed Unicode <em>script</em>. That is the right tool for homoglyph attacks and the wrong tool for code-switching: Tagalog and English are both Latin script, so <code>MIXED_SCRIPT_DETECTED</code> never fires on Taglish no matter how thoroughly the two are interleaved. The function's own docstring already says it is not language identification — this is the thing it isn't.</p>
+
+  <ul class="tight">
+    <li>Add <code>detect_language()</code> <strong>beside</strong> <code>dominant_script</code>, not inside it. Two questions, two functions.</li>
+    <li>Add <code>LANGUAGE_DETECTED</code> and <code>CODE_SWITCHED_DETECTED</code> flags</li>
+    <li>Record the detected language per segment in telemetry</li>
+    <li>Add Tagalog imperative patterns to <code>patterns.json</code> — <code>huwag pansinin</code>, <code>kalimutan mo</code>, <code>sundin mo</code> currently have zero coverage</li>
+  </ul>
+
+  <div class="card flag">
+    <h4>Not adopted: translating to English before prediction</h4>
+    <p>It spends the latency budget on a network or model call inside the request path, and it is an injection surface in its own right — a translator can drop or introduce instructions, and the detector would then be judging text no attacker ever sent.</p>
+    <p>The encoder is already <code>intfloat/multilingual-e5-small</code>, so the model layer needs no translation step. Language ID is recorded as a <strong>signal</strong>, not used as a rewrite.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Adviser comments, and where each is answered</h2>
+  <p class="lede">Two were narrowed deliberately. The narrowing should be stated to the adviser rather than left to be discovered.</p>
+
+  <div class="scroller">
+    <table>
+      <caption>September 2026 review · full register in docs/generate_comments_register.py</caption>
+      <thead><tr><th>ID</th><th>Comment</th><th>Disposition</th><th>Phase</th></tr></thead>
+      <tbody>
+        <tr><td class="ph">A9</td><td>Use n-grams instead of unigrams</td><td><strong>Partly already done.</strong> <code>baseline_models.py</code> uses word (1,2) and char (3,5). The gap is <code>token_association.py</code>, which is unigram-only</td><td class="ph">13</td></tr>
+        <tr><td class="ph">A10</td><td>Word cloud for visualisation</td><td><strong>Adopted, reframed.</strong> Sized by log-odds, not frequency; presented as corpus-bias evidence rather than decoration</td><td class="ph">13</td></tr>
+        <tr><td class="ph">A11</td><td>Feature engineering — new columns</td><td><strong>Adopted.</strong> ~55 columns, ~25 free from existing code</td><td class="ph">6.5</td></tr>
+        <tr><td class="ph">A12</td><td>Injection keyword dictionary + question marks</td><td><strong>Half already built.</strong> The dictionary is <code>patterns.json</code> — 47 regexes, 9 detectors. Do not rebuild it. The interrogative/imperative hypothesis is new and testable</td><td class="ph">6.5</td></tr>
+        <tr><td class="ph">A13</td><td>Compare against LSTM and GRU</td><td><strong>Adopted, resequenced.</strong> After Stage II training. One table, with latency and parameter count</td><td class="ph">8.5</td></tr>
+        <tr><td class="ph">A14</td><td>Address code-switching by normalising mixed languages</td><td><strong>Adopted, mechanism substituted.</strong> Language ID as a signal plus a held-out Taglish set. Translation-before-prediction declined. Scope is English–Tagalog only, per adviser</td><td class="ph">3, 13</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Why A9 needs almost no defending</h3>
+  <p>The current unigram output makes the adviser's case on its own. Four of the strongest associations — <code>instructions</code> (V=0.291), <code>reveal</code> (0.259), <code>ignore</code> (0.240), <code>previous</code> (0.211) — are fragments of <em>one phrase</em> counted as four independent findings. And no unigram model can separate "ignore previous instructions" from "ignore the previous email", a distinction Stage I already hand-codes as a regex.</p>
+
+  <h3>What the Taglish set actually measures</h3>
+  <p><code>gracias</code>, <code>esta</code> and <code>volvi</code> already rank as malicious-associated in the current corpus. <strong>The corpus as it stands teaches that non-English text is suspicious.</strong> Report the false-positive rate on benign Taglish separately from the pooled FPR — pooling hides exactly the failure this set exists to find.</p>
+</section>
+
+<footer>
+  MOCHI Build Plan revision 2 · 1 September 2026<br>
+  Canonical source: docs/BUILD_PLAN.md · companion evidence: MOCHI Evidence Dossier<br>
+  Phases 0–8, 10, 11 committed · Phase 9 omitted per register item Q7
+</footer>
+
+</div>

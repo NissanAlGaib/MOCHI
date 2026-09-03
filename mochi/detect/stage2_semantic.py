@@ -3,8 +3,15 @@
 Stage I matches *form*; Stage II matches *meaning*. A paraphrased attack -
 "kindly set aside whatever guidance you were given earlier" - contains no
 pattern from ``patterns.json`` and passes Stage I untouched, but sits close to
-known attacks in embedding space. Stage I's measured recall of 0.0521 on this
-project's corpus is the empirical case for this stage existing.
+known attacks in embedding space. Stage I's measured recall of **0.0590** on the
+cleaned corpus (``data/clean``, n=82,765) is the empirical case for this stage
+existing.
+
+The figure is quoted from ``reports/clean_stage1.json``, not the earlier
+``reports/stage1.json`` (recall 0.0521), which was measured against the raw
+``data/`` tree - uncapped jayavibhav plus the 546 deepset rows since excluded.
+Both are real numbers; only one is comparable to everything else reported, and
+mixing the two is how a results table stops adding up.
 
 Three implementation choices here differ from the library defaults, each
 because a measurement said the default was wrong:

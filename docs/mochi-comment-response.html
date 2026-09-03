@@ -1,0 +1,466 @@
+<title>Six Comments Answered</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap">
+
+<style>
+  :root {
+    --paper:#F3F5F5; --surface:#FFFFFF; --surface-2:#EAEEEE;
+    --ink:#101A1C; --ink-2:#3D4B4E; --ink-3:#67777A;
+    --rule:#CFD8D8; --rule-soft:#E1E7E7;
+    --accent:#0B6E75; --accent-dim:#E0EDED;
+    --crit:#A32B21; --crit-bg:#F7E4E2;
+    --warn:#8A5A00; --warn-bg:#F8EEDA;
+    --ok:#1B6339;   --ok-bg:#E1EFE6;
+    --serif:"IBM Plex Serif",Georgia,serif;
+    --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+    --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+    --measure:68ch;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:#0D1315; --surface:#151E20; --surface-2:#1B2528;
+      --ink:#E3EAE9; --ink-2:#AFBEBF; --ink-3:#7C8D8F;
+      --rule:#242F32; --rule-soft:#1C2629;
+      --accent:#45A7AE; --accent-dim:#14312F;
+      --crit:#E58175; --crit-bg:#331A18;
+      --warn:#D6A544; --warn-bg:#2F2515;
+      --ok:#5FBB84;   --ok-bg:#162C1F;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:#0D1315; --surface:#151E20; --surface-2:#1B2528;
+    --ink:#E3EAE9; --ink-2:#AFBEBF; --ink-3:#7C8D8F;
+    --rule:#242F32; --rule-soft:#1C2629;
+    --accent:#45A7AE; --accent-dim:#14312F;
+    --crit:#E58175; --crit-bg:#331A18;
+    --warn:#D6A544; --warn-bg:#2F2515;
+    --ok:#5FBB84;   --ok-bg:#162C1F;
+  }
+
+  * { box-sizing: border-box; }
+  body { background: var(--paper); color: var(--ink); font-family: var(--sans);
+         font-size:16px; line-height:1.62; margin:0; -webkit-font-smoothing:antialiased; }
+  .page { max-width: 1000px; margin: 0 auto; padding: 0 28px 90px; }
+
+  header.mast { padding: 58px 0 28px; border-bottom: 2px solid var(--ink); }
+  .eyebrow { font-family: var(--mono); font-size:11px; letter-spacing:.14em;
+             text-transform:uppercase; color: var(--ink-3); margin:0 0 18px; }
+  h1 { font-family: var(--serif); font-weight:600; font-size:clamp(2.3rem,5.5vw,3.5rem);
+       line-height:1.05; letter-spacing:-.02em; margin:0 0 16px; text-wrap:balance; }
+  .standfirst { font-family: var(--serif); font-size:1.15rem; line-height:1.55;
+                color: var(--ink-2); max-width:60ch; margin:0; }
+  .byline { font-family: var(--mono); font-size:11.5px; color: var(--ink-3);
+            margin:22px 0 0; line-height:1.8; }
+
+  .strip { display:grid; grid-template-columns:repeat(auto-fit,minmax(132px,1fr));
+           gap:1px; background:var(--rule); border:1px solid var(--rule); margin:30px 0 0; }
+  .strip div { background:var(--surface); padding:15px 17px; }
+  .strip dt { font-family:var(--mono); font-size:10px; letter-spacing:.12em;
+              text-transform:uppercase; color:var(--ink-3); margin:0 0 8px; }
+  .strip dd { font-family:var(--serif); font-size:1.7rem; line-height:1; margin:0;
+              font-variant-numeric:tabular-nums; }
+  .strip dd span { font-family:var(--mono); font-size:10.5px; color:var(--ink-3);
+                   display:block; margin-top:6px; line-height:1.4; }
+
+  h2 { font-family: var(--serif); font-weight:600; font-size:clamp(1.4rem,3vw,1.85rem);
+       line-height:1.15; letter-spacing:-.015em; margin:0 0 8px; text-wrap:balance; }
+  h3 { font-family: var(--sans); font-weight:600; font-size:.95rem; margin:28px 0 8px; }
+  section { padding-top: 54px; }
+  p { max-width: var(--measure); }
+  .lede { color: var(--ink-2); margin:0 0 22px; max-width: var(--measure); }
+  a { color: var(--accent); }
+  code { font-family: var(--mono); font-size:.85em; background: var(--surface-2);
+         padding:1px 5px; border-radius:2px; word-break:break-word; }
+  strong { font-weight:600; }
+
+  /* comment blocks */
+  .cmt { border:1px solid var(--rule); background:var(--surface); margin:20px 0 0; }
+  .cmt-head { display:grid; grid-template-columns:auto 1fr auto; gap:14px;
+              align-items:center; padding:15px 20px; border-bottom:1px solid var(--rule); }
+  .cmt-id { font-family:var(--mono); font-size:12px; font-weight:600; color:var(--accent);
+            letter-spacing:.06em; }
+  .cmt-title { font-weight:600; font-size:15px; line-height:1.3; }
+  .cmt-body { padding:18px 20px 20px; }
+  .cmt.done { border-left:4px solid var(--ok); }
+  .cmt.partial { border-left:4px solid var(--warn); }
+  .cmt.todo { border-left:4px solid var(--ink-3); }
+
+  .asked { font-family:var(--serif); font-style:italic; font-size:15px;
+           color:var(--ink-2); border-left:2px solid var(--rule);
+           padding:2px 0 2px 14px; margin:0 0 16px; max-width:64ch; }
+
+  .cmt-body p { font-size:14.5px; color:var(--ink-2); margin:0 0 11px; }
+  .cmt-body p:last-child { margin-bottom:0; }
+  .cmt-body strong { color:var(--ink); }
+
+  .files { font-family:var(--mono); font-size:11px; color:var(--ink-3);
+           border-top:1px solid var(--rule-soft); padding-top:12px; margin-top:16px;
+           line-height:1.7; overflow-x:auto; }
+  .files b { font-weight:500; letter-spacing:.12em; text-transform:uppercase;
+             font-size:9.5px; display:block; margin-bottom:6px; }
+
+  .chip { display:inline-block; font-family:var(--mono); font-size:9.5px; letter-spacing:.1em;
+          text-transform:uppercase; padding:3px 8px; border-radius:2px; white-space:nowrap;
+          font-weight:500; }
+  .chip.ok{background:var(--ok-bg);color:var(--ok)}
+  .chip.warn{background:var(--warn-bg);color:var(--warn)}
+  .chip.crit{background:var(--crit-bg);color:var(--crit)}
+  .chip.off{background:var(--surface-2);color:var(--ink-3)}
+  .chip.info{background:var(--accent-dim);color:var(--accent)}
+
+  .scroller { overflow-x:auto; border:1px solid var(--rule); background:var(--surface);
+              margin:16px 0 6px; }
+  table { border-collapse:collapse; width:100%; font-size:13px; min-width:480px; }
+  caption { caption-side:top; text-align:left; font-family:var(--mono); font-size:10px;
+            letter-spacing:.12em; text-transform:uppercase; color:var(--ink-3);
+            padding:13px 16px 9px; }
+  th { font-family:var(--mono); font-weight:500; font-size:10px; letter-spacing:.1em;
+       text-transform:uppercase; color:var(--ink-3); text-align:left; padding:9px 13px;
+       border-bottom:1px solid var(--rule); white-space:nowrap; }
+  td { padding:9px 13px; border-bottom:1px solid var(--rule-soft); vertical-align:top; }
+  tbody tr:last-child td { border-bottom:none; }
+  .num { text-align:right; font-variant-numeric:tabular-nums; font-family:var(--mono);
+         font-size:12px; white-space:nowrap; }
+  .best { color:var(--accent); font-weight:600; }
+  .muted { color:var(--ink-3); }
+  tr.rule-top td { border-top:1px solid var(--rule); }
+
+  pre.term { font-family:var(--mono); font-size:11.5px; line-height:1.75;
+             background:var(--surface-2); border:1px solid var(--rule);
+             padding:14px 16px; overflow-x:auto; margin:14px 0; color:var(--ink-2); }
+  pre.term b { color:var(--accent); font-weight:600; }
+
+  .note { border:1px solid var(--rule); background:var(--surface); padding:16px 19px;
+          margin:18px 0; max-width:var(--measure); }
+  .note.flag { border-left:4px solid var(--warn); }
+  .note.stop { border-left:4px solid var(--crit); }
+  .note .hd { font-family:var(--mono); font-size:9.5px; letter-spacing:.12em;
+              text-transform:uppercase; margin-bottom:8px; display:block; }
+  .note.flag .hd { color:var(--warn); }
+  .note.stop .hd { color:var(--crit); }
+  .note p { font-size:14px; margin:0 0 9px; }
+  .note p:last-child { margin-bottom:0; }
+
+  ol.ask { margin:16px 0; padding-left:0; list-style:none; counter-reset:q; }
+  ol.ask li { counter-increment:q; position:relative; padding-left:36px;
+              margin-bottom:16px; color:var(--ink-2); font-size:14.5px;
+              max-width:var(--measure); }
+  ol.ask li::before { content:"Q"counter(q); position:absolute; left:0; top:1px;
+                      font-family:var(--mono); font-size:10px; color:var(--accent);
+                      border:1px solid var(--accent); padding:2px 5px; border-radius:2px; }
+  ol.ask b { color:var(--ink); }
+
+  footer { margin-top:70px; padding-top:20px; border-top:2px solid var(--ink);
+           font-family:var(--mono); font-size:11px; color:var(--ink-3); line-height:1.8; }
+</style>
+
+<div class="page">
+
+<header class="mast">
+  <p class="eyebrow">Response to adviser comments · 1 September 2026</p>
+  <h1>Six Comments Answered</h1>
+  <p class="standfirst">Four implemented and measured, one partially built, one deliberately deferred. Two had their mechanism changed from what was asked, and both changes are flagged for your decision rather than buried.</p>
+  <p class="byline">
+    MOCHI — Middleware for Observing, Classifying, and Handling prompt Injections<br>
+    BS Computer Science, Western Mindanao State University<br>
+    Hans Adrian A. Lao · Jelaine May C. Macias · Rosepel M. Maglangit
+  </p>
+
+  <dl class="strip">
+    <div><dt>Comments</dt><dd>4/6<span>fully implemented</span></dd></div>
+    <div><dt>Tests</dt><dd>556<span>from 431 · all passing</span></dd></div>
+    <div><dt>Coverage</dt><dd>93%<span>2,165 statements</span></dd></div>
+    <div><dt>Feature columns</dt><dd>73<span>new dataset table</span></dd></div>
+    <div><dt>Patterns</dt><dd>61<span>from 47</span></dd></div>
+  </dl>
+</header>
+
+<section>
+  <h2>Summary</h2>
+  <p class="lede">Status at a glance. Detail and evidence for each follows below.</p>
+
+  <div class="scroller">
+    <table>
+      <caption>Six comments, current state</caption>
+      <thead><tr><th>ID</th><th>Comment</th><th>State</th><th>Evidence</th></tr></thead>
+      <tbody>
+        <tr><td class="num">A9</td><td>Use n-grams instead of unigrams</td><td><span class="chip ok">Implemented</span></td><td class="muted">Ablation run; contamination 22.1% → 13.5%</td></tr>
+        <tr><td class="num">A10</td><td>Word cloud for visualisation</td><td><span class="chip ok">Implemented</span></td><td class="muted">3 figures; surfaced a corpus bias</td></tr>
+        <tr><td class="num">A11</td><td>Feature engineering — new columns</td><td><span class="chip ok">Implemented</span></td><td class="muted">73 columns; F1 +0.0721</td></tr>
+        <tr><td class="num">A12</td><td>Keyword dictionary + question marks</td><td><span class="chip ok">Implemented</span></td><td class="muted">Hypothesis confirmed on 82,765 rows</td></tr>
+        <tr><td class="num">A13</td><td>Compare against LSTM and GRU</td><td><span class="chip off">Deferred</span></td><td class="muted">Blocked: Stage II not yet trained</td></tr>
+        <tr><td class="num">A14</td><td>Address code-switching</td><td><span class="chip warn">Partial</span></td><td class="muted">Detection built; validation not yet defensible</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2>A9 — N-grams instead of unigrams</h2>
+
+  <div class="cmt done">
+    <div class="cmt-head">
+      <span class="cmt-id">A9</span>
+      <span class="cmt-title">Use N-grams instead of unigrams to capture context better</span>
+      <span class="chip ok">Implemented</span>
+    </div>
+    <div class="cmt-body">
+      <p class="asked">"Use N-grams instead of unigrams (1-grams) to capture context better."</p>
+
+      <p><strong>Partly already in place.</strong> The classification models already used word bigrams and character 3–5 grams. The gap was in the statistical analysis script, which tested single words only — that is likely what was seen.</p>
+
+      <p>N-gram support was added there, with the unigram default preserved so every previously reported figure stays reproducible.</p>
+
+      <div class="scroller">
+        <table>
+          <caption>N-gram ablation · 82,765 samples</caption>
+          <thead><tr><th>Range</th><th class="num">Terms tested</th><th class="num">Significant</th><th class="num">Max Cramér's V</th><th class="num">Benign contamination</th></tr></thead>
+          <tbody>
+            <tr><td>1 (unigram)</td><td class="num">10,013</td><td class="num">4,727</td><td class="num">0.291</td><td class="num">22.1%</td></tr>
+            <tr><td>1–2</td><td class="num">30,693</td><td class="num">16,746</td><td class="num">0.291</td><td class="num best">13.5%</td></tr>
+            <tr><td>1–3</td><td class="num">42,261</td><td class="num">25,728</td><td class="num">0.291</td><td class="num">13.8%</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p><strong>The comment is supported, but not by the statistic one would expect.</strong> Peak Cramér's V does not move at all. That is not evidence against n-grams — V is a symmetric association measure that penalises rarity, and every bigram is rarer than its parts, so V structurally cannot rise.</p>
+
+      <p>What improves is <em>contamination</em>: the share of a term's occurrences that fall on benign text, which is the false-positive rate that term would produce if promoted to a detection rule.</p>
+
+      <pre class="term">previous                4,184 malicious /  746 benign    15.1% contaminated
+<b>previous instructions   2,439 malicious /    9 benign     0.4% contaminated</b></pre>
+
+      <p>Same phrase family, an <strong>83× cleaner indicator</strong>, and a <em>lower</em> Cramér's V (0.198 vs 0.211). Reporting V alone would have hidden the entire finding. This is also precisely the distinction the rule-based stage already hand-codes, so the analysis now agrees with the detector.</p>
+
+      <p><strong>Recommendation: n = 1–2, not 1–3.</strong> Trigrams add 11,568 terms and make contamination marginally worse.</p>
+
+      <div class="files"><b>Where</b>eval/token_association.py — <code>--ngram-max</code>, <code>--ablation</code></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>A10 — Word cloud</h2>
+
+  <div class="cmt done">
+    <div class="cmt-head">
+      <span class="cmt-id">A10</span>
+      <span class="cmt-title">Create a Word Cloud for data visualization</span>
+      <span class="chip ok">Implemented</span>
+    </div>
+    <div class="cmt-body">
+      <p class="asked">"Create a Word Cloud for data visualization."</p>
+
+      <p>Three figures produced. Terms are sized by <strong>|log-odds|, not raw frequency</strong> — a frequency-weighted cloud of any English corpus is a picture of the stopword list and carries no information about the label. A side-by-side panel showing both weightings is included so the choice is visible rather than asserted.</p>
+
+      <p>The figure then did more than illustrate. It surfaced a corpus problem the token tables had not made obvious.</p>
+
+      <div class="note flag">
+        <span class="hd">Finding — the corpus rewards shortcuts</span>
+        <p><strong>14 of the 150 strongest malicious-associated terms are artifacts of how the benchmark was built</strong>, not attack language: <code>pwned</code> (2,789 malicious / 0 benign — a benchmark success marker), <code>kermode</code>, <code>kermodei</code>, <code>gribbell</code>, <code>ursus</code>, <code>americanus</code> (one reused source article), <code>few_shot_examples</code>, <code>name_1</code> (a template placeholder).</p>
+        <p>Beside them sits a block of Spanish: <code>gracias</code>, <code>esta</code>, <code>volvi</code>, <code>libro</code>, <code>biblioteca</code>, <code>hola</code>, <code>gusta</code>, <code>donde</code>, <code>clave</code>, <code>por</code>, <code>sido</code>, <code>negro</code>, <code>secreta</code>.</p>
+        <p><strong>The corpus does not merely contain benchmark markers — it teaches that non-English text is malicious.</strong> A classifier can score well on this without learning anything about prompt injection, which is the empirical argument for semantic detection over keyword matching. It also makes A14 a requirement rather than an enhancement.</p>
+      </div>
+
+      <div class="files"><b>Where</b>eval/wordcloud_figures.py → reports/figures/ (3 PNGs)</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>A11 — Feature engineering</h2>
+
+  <div class="cmt done">
+    <div class="cmt-head">
+      <span class="cmt-id">A11</span>
+      <span class="cmt-title">Perform feature engineering by adding new useful columns</span>
+      <span class="chip ok">Implemented</span>
+    </div>
+    <div class="cmt-body">
+      <p class="asked">"Perform feature engineering by adding new useful columns to the dataset."</p>
+
+      <p><strong>73 columns</strong> across nine families: surface, punctuation, imperative structure, injection lexicon, obfuscation, language, URL, position, and identity. Roughly <strong>25 of them were already being computed on every request and discarded</strong> — the obfuscation flags in particular — so materialising them was bookkeeping rather than new analysis.</p>
+
+      <p>One design rule governs the whole thing: features are defined in <em>one</em> module, which both the dataset builder and the live gateway import. A notebook that recomputed a column its own way would drift from the running system, and every ablation number would quietly become fiction with no test failing.</p>
+
+      <div class="scroller">
+        <table>
+          <caption>Ablation — do the engineered columns add anything?</caption>
+          <thead><tr><th>Variant</th><th class="num">Precision</th><th class="num">Recall</th><th class="num">F1</th><th class="num">FPR</th><th class="num">Features</th></tr></thead>
+          <tbody>
+            <tr><td>TF-IDF only (control)</td><td class="num">0.7378</td><td class="num">0.6328</td><td class="num">0.6813</td><td class="num best">0.1224</td><td class="num">200,000</td></tr>
+            <tr><td>Engineered only</td><td class="num">0.5291</td><td class="num">0.6228</td><td class="num">0.5721</td><td class="num">0.3017</td><td class="num best">71</td></tr>
+            <tr><td>TF-IDF + engineered</td><td class="num">0.7402</td><td class="num best">0.7671</td><td class="num best">0.7534</td><td class="num">0.1466</td><td class="num">200,071</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>Adding 71 columns to 200,000 lifts F1 by <strong>+0.0721</strong> and recall by <strong>+0.134</strong> at essentially unchanged precision — the engineered features catch attacks the bag of words misses entirely, which is what the obfuscation family was predicted to do. This also overtakes the previous best classical model.</p>
+
+      <p>The cost is false positives: 0.1224 → 0.1466. Both remain an order of magnitude above the &lt;1% requirement, so <strong>neither is deployable as a front-line filter</strong>, and the features remain analysis-only until the semantic stage exists to compare against. Wiring an unvalidated signal into a security decision path is how a false-positive rate regresses unnoticed.</p>
+
+      <div class="files"><b>Where</b>mochi/preprocess/features.py · eval/build_features.py · data/features/</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>A12 — Keyword dictionary and question marks</h2>
+
+  <div class="cmt done">
+    <div class="cmt-head">
+      <span class="cmt-id">A12</span>
+      <span class="cmt-title">Detect adversarial commands via a keyword dictionary and question marks</span>
+      <span class="chip ok">Implemented</span>
+    </div>
+    <div class="cmt-body">
+      <p class="asked">"Detect adversarial commands by building a dictionary of common prompt injection keywords and tracking question marks."</p>
+
+      <p><strong>The dictionary already existed</strong> and was not rebuilt: 61 regular expressions across 9 detector categories, externalised to a configuration file so patterns are revisable without code changes. It was extended rather than duplicated.</p>
+
+      <p>The question-mark idea was new and, importantly, <em>testable</em>. It was implemented as measurable columns rather than assumed — the hypothesis being that benign users <em>ask</em> while injections <em>command</em>.</p>
+
+      <div class="note">
+        <p style="font-family:var(--mono);font-size:12.5px;line-height:2;margin:0">
+          <b style="font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);display:block;margin-bottom:10px">Measured across all 82,765 samples</b>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;benign&nbsp;&nbsp;&nbsp;&nbsp;malicious<br>
+          question_ratio&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;0.1156&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;0.0435<br>
+          ends_with_question&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;0.1287&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;0.0327&nbsp;&nbsp;&nbsp;<span style="color:var(--accent)">3.9×</span><br>
+          imperative_verb_count&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;0.3775&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;1.4179&nbsp;&nbsp;&nbsp;<span style="color:var(--accent)">3.8×</span><br>
+          starts_with_imperative&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;0.0502&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;0.2007&nbsp;&nbsp;&nbsp;<span style="color:var(--accent)">4.0×</span>
+        </p>
+      </div>
+
+      <p><strong>The hypothesis holds.</strong> Benign prompts are roughly four times more likely to end in a question mark; injections carry roughly four times the imperative verbs. This is now a measured claim rather than an assumption, and it is reported with the caveat that it may partly reflect how the benchmark corpora were assembled.</p>
+
+      <div class="files"><b>Where</b>mochi/patterns.json (61 patterns) · mochi/preprocess/features.py</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>A13 — LSTM and GRU comparison</h2>
+
+  <div class="cmt todo">
+    <div class="cmt-head">
+      <span class="cmt-id">A13</span>
+      <span class="cmt-title">Compare model performance against LSTM and GRU</span>
+      <span class="chip off">Deferred, not declined</span>
+    </div>
+    <div class="cmt-body">
+      <p class="asked">"Compare model performance against LSTM and GRU."</p>
+
+      <p><strong>Accepted, and deliberately sequenced after the semantic model is trained rather than before.</strong> The proposed model's weights do not yet exist — the code is complete but has never been trained. Comparing recurrent baselines against an untrained model would produce a table with a hole in the row that matters.</p>
+
+      <p>The plan is written and the phase is scheduled. Six rungs on one ladder, in increasing capability: rule-based → naive Bayes → linear SVM → BiLSTM → BiGRU → the fine-tuned transformer, all on identical splits with a recorded seed.</p>
+
+      <p><strong>Latency and parameter count will be reported beside F1.</strong> MOCHI is a gateway with a response-time budget, not a leaderboard entry; a recurrent model that lands within a point or two of the transformer at a fraction of the memory is a genuine finding and belongs in the discussion rather than being buried for losing on one metric.</p>
+
+      <div class="note flag">
+        <span class="hd">One scope note</span>
+        <p>The ladder is capped at a single table. The risk in this phase is a systems thesis drifting into a model-comparison thesis because the comparison turned out to be interesting.</p>
+      </div>
+
+      <div class="files"><b>Planned</b>training/lstm_gru.py — Phase 8.5, blocked on Phase 8 training (local GPU available)</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>A14 — Code-switching</h2>
+
+  <div class="cmt partial">
+    <div class="cmt-head">
+      <span class="cmt-id">A14</span>
+      <span class="cmt-title">Address code-switching by normalizing mixed languages</span>
+      <span class="chip warn">Detection built · validation outstanding</span>
+    </div>
+    <div class="cmt-body">
+      <p class="asked">"Address code-switching by normalizing mixed languages in the prompt before prediction."</p>
+
+      <p>Scoped to <strong>English–Tagalog only</strong>, as instructed. The mechanism was changed, and that change is the first thing to raise.</p>
+
+      <div class="note flag">
+        <span class="hd">Mechanism substituted — please confirm</span>
+        <p>The comment asks for <em>normalising mixed languages before prediction</em>, i.e. translating to English first. That was not adopted, for two reasons:</p>
+        <p><strong>1. It spends the latency budget.</strong> A translation call sits inside the request path, on a system whose central claim is sub-millisecond first-stage filtering.</p>
+        <p><strong>2. It is itself an attack surface.</strong> A translator can drop or introduce instructions, and the detector would then be judging text that no attacker ever sent.</p>
+        <p>Instead, language is <em>identified and recorded as a signal</em>, and Tagalog attack patterns were added directly. The semantic encoder already in use is a multilingual model, so no translation step is needed for it to read Taglish.</p>
+      </div>
+
+      <h3>The gap that was found</h3>
+      <p>Before this work, measured against code-switched test cases:</p>
+
+      <pre class="term">                     attacks blocked
+taglish_attack            <b>0 / 11</b>
+tagalog_attack            <b>0 /  7</b>
+english_attack              3 /  4</pre>
+
+      <p>Every Tagalog and code-switched injection passed the first stage untouched. The existing mixed-<em>script</em> check could not see it either — Tagalog and English are both written in Latin script, so it reported "not mixed" for all of them. Script and language are different questions, and only one was being asked.</p>
+
+      <h3>After</h3>
+      <pre class="term">taglish_attack           <b>11 / 11</b>        taglish_benign    12 / 12 pass
+tagalog_attack            <b>7 /  7</b>        tagalog_benign     6 /  6 pass
+english_attack            <b>4 /  4</b>        english_benign     4 /  4 pass</pre>
+
+      <p><strong>No regression on the English corpus.</strong> Re-running the full evaluation over all 82,765 rows gives byte-identical results — precision 0.97284, recall 0.05896, false-positive rate 0.00126, every figure unchanged. The Tagalog patterns require Tagalog tokens, so they are inert on English text. New coverage at zero cost to the false-positive requirement.</p>
+
+      <p>A <strong>pre-existing English gap</strong> was also found by the control row and fixed in the same pass: a common persona-reassignment phrasing had never been caught.</p>
+
+      <div class="note stop">
+        <span class="hd">Limitation — this is why A14 is marked partial</span>
+        <p>The Tagalog test sentences, word lists, and patterns were all <strong>generated by a language model</strong>. No dictionary, translation tool, published corpus, or Tagalog speaker was consulted.</p>
+        <p>The fluency risk is real but secondary. The structural problem is that <strong>the detector and its test set share an author</strong>: the sentences use exactly the vocabulary the word list contains, so the perfect score measures internal consistency, not detection. Real Tagalog will use words the list has never seen.</p>
+        <p>This also means proofreading the file does not fix it — the replacement set must be <strong>written independently, by someone who has not seen the word list</strong>, or the same circularity is reproduced with a human signature on it.</p>
+        <p><strong>No figure from these fixtures should appear in the results chapter.</strong> The 82,765-row no-regression result above is unaffected by this and stands on its own.</p>
+      </div>
+
+      <h3>Proposed remedy</h3>
+      <p>Two things, separable because they need different evidence. <strong>Attack samples can legitimately be synthetic</strong> — collecting real injections against production systems is not ethically available, and this is the same attack-simulation protocol already approved for the obfuscation evasion tests. What they need is independent authorship: the two co-researchers each write 25 attacks and 25 ordinary requests without reading the word list.</p>
+      <p><strong>Language identification is different and does not need synthetic data at all.</strong> It can be validated against ordinary published Tagalog text, which requires no injection labels and exists already. That converts the weakest claim into a real measurement.</p>
+
+      <div class="files"><b>Where</b>mochi/preprocess/normalize.py — <code>detect_language()</code> · mochi/patterns.json (+14) · tests/fixtures/taglish.py</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Decisions needed</h2>
+  <p class="lede">Four points where the work is blocked on a call that is yours rather than ours.</p>
+
+  <ol class="ask">
+    <li><b>spaCy or NLTK?</b> This was raised previously and is still open. It has become blocking rather than merely pending: the imperative-structure features in A12 are currently word-list based, and <code>starts_with_imperative</code> is genuinely approximate without part-of-speech tagging — it cannot separate "Ignore the previous instructions" from "Ignoring the noise, the result holds." Numbers are already being reported from this family.</li>
+
+    <li><b>Is the A14 mechanism substitution approved?</b> Language identification as a recorded signal, rather than translation before prediction. The reasoning is above; if translation is preferred despite the latency and attack-surface costs, it can be built instead.</li>
+
+    <li><b>Is the synthetic-attack methodology acceptable for the code-switching evaluation</b>, given independent authorship and hold-out, and reported separately from corpus-derived figures? This mirrors the attack-simulation protocol already in the approved design.</li>
+
+    <li><b>Confirm A13 sequencing</b> — recurrent baselines after the semantic model is trained, not before, and capped at one table.</li>
+  </ol>
+</section>
+
+<section>
+  <h2>Also delivered</h2>
+  <p class="lede">Three corrections found while implementing the above, none of which were asked for but all of which would have affected reported figures.</p>
+
+  <div class="scroller">
+    <table>
+      <caption>Corrections</caption>
+      <thead><tr><th>Issue</th><th>Effect if left</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Two corpora were being mixed</strong> — the rule-based stage was measured on 305,708 raw rows while the classical models used 82,765 cleaned rows</td><td class="muted">The two sets of figures could not have appeared in one comparison table. Now both use the cleaned corpus.</td></tr>
+        <tr><td><strong>Committed coverage report was stale by 23 points</strong> — it predated the detection stages and contained none of them</td><td class="muted">Understated the work: reported 69% across 20 modules; actual is 93% across 30.</td></tr>
+        <tr><td><strong>Project status table was out of date</strong> — listed four completed phases as not started</td><td class="muted">Understated progress in the opposite direction.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<footer>
+  Response to adviser comments A9–A14 · 1 September 2026<br>
+  Companion documents: MOCHI Evidence Dossier (statistics and tooling) · MOCHI Build Plan (roadmap)<br>
+  All figures reproducible from the commands recorded in docs/BUILD_PLAN.md
+</footer>
+
+</div>

@@ -13,7 +13,9 @@ from mochi.preprocess.file_extract import FileExtraction, extract_file, extract_
 from mochi.preprocess.flags import NormalizationFlag
 from mochi.preprocess.html_extract import HTMLExtraction, extract_html, looks_like_html
 from mochi.preprocess.normalize import (
+    LanguageProfile,
     NormalizationResult,
+    detect_language,
     dominant_script,
     fold_homoglyphs,
     normalize,
@@ -25,8 +27,10 @@ from mochi.preprocess.preprocessor import preprocess_file, preprocess_segment
 __all__ = [
     "FileExtraction",
     "HTMLExtraction",
+    "LanguageProfile",
     "NormalizationFlag",
     "NormalizationResult",
+    "detect_language",
     "dominant_script",
     "extract_file",
     "extract_html",

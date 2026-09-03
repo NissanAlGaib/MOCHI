@@ -173,4 +173,32 @@ results table. Every subsequent phase is measured as a delta against it.
 | `eval/predictors.py` | Adapters from samples to the MOCHI pipeline |
 | `eval/run_detection.py` | Detection evaluation CLI (thesis Phase 2) |
 | `eval/stats.py` | Paired t-test, Cohen's d, H01–H06 |
+| `eval/audit_datasets.py` | Corpus integrity: duplicates, leakage, signal position |
+| `eval/clean_datasets.py` | Deduplication and the jayavibhav cap |
+| `eval/baseline_models.py` | Classical baselines; `--hybrid` runs the Phase 6.5 ablation |
+| `eval/token_association.py` | Chi-square / Fisher + BH FDR; `--ablation` compares n-gram ranges |
+| `eval/build_features.py` | Materializes `data/features/` from `mochi.preprocess.features` |
+| `eval/wordcloud_figures.py` | Log-odds-weighted word clouds (register item A10) |
 | `eval/run_mitigation.py` | Attack simulation (thesis Phase 3) — arrives in Phase 13 |
+
+## Which corpus a number came from
+
+Two directories, and the distinction matters more than it looks:
+
+| Path | Rows | What it is |
+|---|---|---|
+| `data/` | 305,708 | Raw, as downloaded. Includes the excluded deepset rows and an uncapped jayavibhav. |
+| `data/clean/` | 82,765 | Deduplicated, jayavibhav capped at 40,000. **The corpus every reported number should use.** |
+
+`reports/stage1.json` was measured against `data/` and is kept only for
+provenance. `reports/clean_stage1.json` is the comparable one:
+
+```
+              precision  recall     F1      FPR
+raw    (305k)    0.9700  0.0521  0.0989  0.00147
+clean  ( 82k)    0.9728  0.0590  0.1112  0.00126
+```
+
+Both are real. Only one is comparable to the baselines, the ablations, and the
+token association, all of which run on `data/clean`. Mixing them is how a
+results table stops adding up.

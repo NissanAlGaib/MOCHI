@@ -24,6 +24,17 @@ class NormalizationFlag(StrEnum):
     MIXED_SCRIPT_DETECTED = "mixed_script_detected"
     EXCESSIVE_SPECIAL_CHARACTERS = "excessive_special_characters"
 
+    # --- Language ---
+    #: Two languages interleaved in one segment. Sits beside
+    #: ``MIXED_SCRIPT_DETECTED`` as a signal rather than an undo, because
+    #: code-switching is a property of the text, not damage to repair.
+    #:
+    #: There is deliberately **no ``NON_ENGLISH_DETECTED`` flag.** The corpus
+    #: already associates Spanish tokens with the malicious class, so a flag
+    #: meaning "not English" would harden a measured bias into a detector rule.
+    #: Code-switching is recorded; foreignness is not.
+    CODE_SWITCHED_DETECTED = "code_switched_detected"
+
     # --- Encoding wrappers ---
     BASE64_DECODED = "base64_decoded"
     HEX_DECODED = "hex_decoded"

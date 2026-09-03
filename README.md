@@ -19,12 +19,14 @@ Hans Adrian A. Lao, Jelaine May C. Macias, Rosepel M. Maglangit.
 | 3 | Normalization / de-obfuscation layer | ✅ Done |
 | 4 | Source tagging & payload parsing | ✅ Done |
 | 5 | Evaluation harness | ✅ Done |
-| 6 | Stage I — syntactic filtering | ⬜ Next |
-| 7 | Session risk accumulator | ⬜ |
-| 8 | Stage II — semantic detection | ⬜ |
-| 9 | Stage III — cognitive arbitration | ⬜ |
-| 10 | Enforcement & sanitization | ⬜ |
-| 11 | Outbound interception | ⬜ |
+| 6 | Stage I — syntactic filtering | ✅ Done |
+| 6.5 | Feature extraction layer | ⬜ Next |
+| 7 | Session risk accumulator | ✅ Done |
+| 8 | Stage II — semantic detection | 🟡 Code complete, model not trained |
+| 8.5 | BiLSTM / BiGRU baselines | ⬜ |
+| 9 | Stage III — cognitive arbitration | ⬛ Omitted by design (register Q7) |
+| 10 | Enforcement & sanitization | ✅ Done |
+| 11 | Outbound interception | ✅ Done |
 | 12 | Multi-provider adapters | ⬜ |
 | 13 | Full evaluation | ⬜ |
 | 14 | Packaging | ⬜ |

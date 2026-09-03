@@ -51,6 +51,46 @@
         {
           "regex": "\\bstop\\s+(?:being|acting\\s+as)\\s+(?:a\\s+)?(?:helpful|an?\\s+assistant)",
           "severity": "high"
+        },
+        {
+          "regex": "\\b(?:huwag|wag)\\s+(?:mo\\s+|mong\\s+|na\\s+|nang\\s+|kang\\s+|ka\\s+)*(?:i-)?(?:pansinin|sundin|sundan|sumunod|intindihin|basahin|paniwalaan|follow|obey|use|check)\\b",
+          "severity": "high",
+          "note": "Tagalog 'do not heed/follow', including the Taglish 'wag mo na i-follow'. Requires the verb: bare 'huwag' is ordinary Tagalog."
+        },
+        {
+          "regex": "\\b(?:kalimutan|limutin)\\s+(?:mo|mong|niyo|ninyo)\\s+(?:ang|lahat|yung|iyong|na\\s+lahat)\\b",
+          "severity": "high",
+          "note": "Tagalog 'forget the/everything'. The second-person enclitic is REQUIRED: without it 'kalimutan na natin' (let us forget) is ordinary benign Tagalog and was a measured false positive."
+        },
+        {
+          "regex": "\\bbalewalain\\s+(?:mo|mong|niyo|ninyo)\\s+(?:ang|yung|lahat|iyong)\\b",
+          "severity": "high",
+          "note": "Tagalog 'disregard the'. Second-person enclitic required, same reasoning as kalimutan."
+        },
+        {
+          "regex": "\\bnaunang\\s+(?:tagubilin|utos|panuto|patakaran|instruction|instructions|command|prompt|rule|rules)\\b",
+          "severity": "high",
+          "note": "'naunang' = previous/preceding. Catches the Taglish form where the noun stays English."
+        },
+        {
+          "regex": "\\b(?:override|bypass|disregard|ignore)\\s+(?:mo|niyo|ninyo)\\b",
+          "severity": "high",
+          "note": "English verb carrying a Tagalog enclitic pronoun - 'ignore mo yung'. The pronoun makes it an instruction rather than prose."
+        },
+        {
+          "regex": "\\bi-(?:ignore|disregard|bypass|override|forget)\\b",
+          "severity": "high",
+          "note": "Taglish verbal affix on an English stem. Unambiguous: no monolingual text produces this form."
+        },
+        {
+          "regex": "\\bpaki-?(?:override|bypass|disregard|ignore|alis|tanggal)\\b",
+          "severity": "high",
+          "note": "'paki-' is the Tagalog polite-imperative prefix; on these verbs it is a request to disable something."
+        },
+        {
+          "regex": "\\b(?:previous|prior|naunang|nauna|dating)\\s+(?:prompt|instruction|instructions|rule|rules|utos|tagubilin|panuto)\\b[^.!?\\n]{0,40}?\\b(?:kalimutan|limutin|balewalain|huwag|wag)\\b",
+          "severity": "high",
+          "note": "Tagalog is verb-initial but topicalises freely, so the object can precede the verb. Matching only verb-first missed 'Yung previous prompt, kalimutan mo.'"
         }
       ]
     },
@@ -183,6 +223,16 @@
         {
           "regex": "\\b(?:what\\s+(?:were|are)\\s+your\\s+(?:exact\\s+)?instructions|list\\s+your\\s+(?:rules|constraints|guidelines))\\b",
           "severity": "high"
+        },
+        {
+          "regex": "\\b(?:ibigay|ibunyag|sabihin|ipakita|ilabas|idisplay|i-display|i-print|i-reveal|iprint)\\s+(?:mo\\s+|mong\\s+|niyo\\s+|ninyo\\s+)*(?:sa\\s+akin\\s+)?(?:ang|yung|iyong)?\\s*(?:system\\s*prompt|password|api\\s*key|credential|sikreto|secret|lihim|susi|token)",
+          "severity": "high",
+          "note": "Tagalog/Taglish 'give me the <secret>'."
+        },
+        {
+          "regex": "\\b(?:ang|yung|iyong)\\s+(?:lihim|sikreto|nakatagong)\\s+(?:susi|mensahe|tagubilin|utos|instruction)",
+          "severity": "high",
+          "note": "'the hidden/secret key|message|instruction'."
         }
       ]
     },
@@ -219,6 +269,26 @@
         {
           "regex": "\\bfrom\\s+now\\s+on\\s*,?\\s+(?:you\\s+(?:will|must|shall)|ignore|disregard)\\b",
           "severity": "medium"
+        },
+        {
+          "regex": "\\b(?:simula\\s+ngayon|mula\\s+ngayon)\\b[^.!?\\n]{0,60}?\\b(?:ikaw|kayo)\\s+(?:ay\\s+)?(?:isang|si|ang)\\b",
+          "severity": "high",
+          "note": "'from now on you are a ...' - the Tagalog persona-reassignment frame."
+        },
+        {
+          "regex": "\\b(?:ikaw|kayo)\\s+(?:ay\\s+)?(?:isang\\s+)?[^.!?\\n]{0,40}?\\bwala(?:ng)?\\s+(?:anumang\\s+|kahit\\s+anong\\s+|ni\\s+isang\\s+)?(?:patakaran|panuntunan|limitasyon|hangganan|restriction|restrictions|filter|limits?|rules?)\\b",
+          "severity": "high",
+          "note": "'you are a ... with no rules/limits'. The optional intensifier slot absorbs 'walang anumang limitasyon'."
+        },
+        {
+          "regex": "\\b(?:sundin|susundin)\\s+mo\\s+(?:lang\\s+|lamang\\s+)?(?:ako|ang\\s+(?:sinasabi|utos)\\s+ko)\\b",
+          "severity": "high",
+          "note": "'obey only me / what I say'."
+        },
+        {
+          "regex": "\\bfrom\\s+now\\s+on\\b[^.!?\\n]{0,50}?\\byou\\s+(?:are|will\\s+be)\\b[^.!?\\n]{0,50}?\\b(?:no|without|zero)\\s+(?:restrictions?|rules?|limits?|limitations?|filters?|guidelines?|restraints?)\\b",
+          "severity": "high",
+          "note": "English persona reassignment with an explicit no-rules clause. Found via the English control in the Taglish fixture set, not by the Tagalog patterns."
         }
       ]
     },
@@ -292,13 +362,31 @@
       "type": "normalization_flag",
       "description": "Encoding wrappers the Phase 3 preprocessor had to peel. Not regex: consumes normalization flags so the two layers stay in sync.",
       "flags": [
-        {"flag": "base64_decoded", "severity": "medium"},
-        {"flag": "hex_decoded", "severity": "medium"},
-        {"flag": "rot13_decoded", "severity": "medium"},
-        {"flag": "url_encoded_decoded", "severity": "low"},
-        {"flag": "decode_depth_exceeded", "severity": "high",
-         "note": "Nesting beyond the cap is not something benign content does"},
-        {"flag": "oversized_after_decode", "severity": "high"}
+        {
+          "flag": "base64_decoded",
+          "severity": "medium"
+        },
+        {
+          "flag": "hex_decoded",
+          "severity": "medium"
+        },
+        {
+          "flag": "rot13_decoded",
+          "severity": "medium"
+        },
+        {
+          "flag": "url_encoded_decoded",
+          "severity": "low"
+        },
+        {
+          "flag": "decode_depth_exceeded",
+          "severity": "high",
+          "note": "Nesting beyond the cap is not something benign content does"
+        },
+        {
+          "flag": "oversized_after_decode",
+          "severity": "high"
+        }
       ]
     },
     {
@@ -307,17 +395,38 @@
       "type": "normalization_flag",
       "description": "Content hidden from human review but visible to the model.",
       "flags": [
-        {"flag": "zero_width_chars_detected", "severity": "high",
-         "note": "Zero-width characters inside a prompt have no legitimate purpose"},
-        {"flag": "bidi_control_chars_detected", "severity": "high",
-         "note": "Trojan Source style directional overrides"},
-        {"flag": "homoglyphs_normalized", "severity": "medium"},
-        {"flag": "mixed_script_detected", "severity": "low",
-         "note": "Legitimate in genuinely multilingual content"},
-        {"flag": "hidden_css_detected", "severity": "medium"},
-        {"flag": "html_comment_extracted", "severity": "low"},
-        {"flag": "excessive_special_characters", "severity": "low",
-         "note": "Adversarial suffix signature; also matches code and ASCII art"}
+        {
+          "flag": "zero_width_chars_detected",
+          "severity": "high",
+          "note": "Zero-width characters inside a prompt have no legitimate purpose"
+        },
+        {
+          "flag": "bidi_control_chars_detected",
+          "severity": "high",
+          "note": "Trojan Source style directional overrides"
+        },
+        {
+          "flag": "homoglyphs_normalized",
+          "severity": "medium"
+        },
+        {
+          "flag": "mixed_script_detected",
+          "severity": "low",
+          "note": "Legitimate in genuinely multilingual content"
+        },
+        {
+          "flag": "hidden_css_detected",
+          "severity": "medium"
+        },
+        {
+          "flag": "html_comment_extracted",
+          "severity": "low"
+        },
+        {
+          "flag": "excessive_special_characters",
+          "severity": "low",
+          "note": "Adversarial suffix signature; also matches code and ASCII art"
+        }
       ]
     }
   ]

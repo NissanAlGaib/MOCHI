@@ -1,0 +1,1087 @@
+<title>MOCHI Evidence Dossier</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap">
+
+<style>
+  :root {
+    --paper:      #F3F5F5;
+    --surface:    #FFFFFF;
+    --surface-2:  #EAEEEE;
+    --ink:        #101A1C;
+    --ink-2:      #3D4B4E;
+    --ink-3:      #67777A;
+    --rule:       #CFD8D8;
+    --rule-soft:  #E1E7E7;
+    --accent:     #0B6E75;
+    --accent-dim: #E0EDED;
+    --crit:       #A32B21;
+    --crit-bg:    #F7E4E2;
+    --warn:       #8A5A00;
+    --warn-bg:    #F8EEDA;
+    --ok:         #1B6339;
+    --ok-bg:      #E1EFE6;
+
+    --serif: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+    --sans:  "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono:  "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+    --measure: 68ch;
+    --rail: 232px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:      #0D1315;
+      --surface:    #151E20;
+      --surface-2:  #1B2528;
+      --ink:        #E3EAE9;
+      --ink-2:      #AFBEBF;
+      --ink-3:      #7C8D8F;
+      --rule:       #242F32;
+      --rule-soft:  #1C2629;
+      --accent:     #45A7AE;
+      --accent-dim: #14312F;
+      --crit:       #E58175;
+      --crit-bg:    #331A18;
+      --warn:       #D6A544;
+      --warn-bg:    #2F2515;
+      --ok:         #5FBB84;
+      --ok-bg:      #162C1F;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper:      #0D1315;
+    --surface:    #151E20;
+    --surface-2:  #1B2528;
+    --ink:        #E3EAE9;
+    --ink-2:      #AFBEBF;
+    --ink-3:      #7C8D8F;
+    --rule:       #242F32;
+    --rule-soft:  #1C2629;
+    --accent:     #45A7AE;
+    --accent-dim: #14312F;
+    --crit:       #E58175;
+    --crit-bg:    #331A18;
+    --warn:       #D6A544;
+    --warn-bg:    #2F2515;
+    --ok:         #5FBB84;
+    --ok-bg:      #162C1F;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+    margin: 0;
+  }
+
+  .page {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 28px 96px;
+  }
+
+  /* ---------- masthead ---------- */
+
+  .masthead {
+    padding: 64px 0 34px;
+    border-bottom: 2px solid var(--ink);
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0 0 20px;
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(2.6rem, 6vw, 4rem);
+    line-height: 1.04;
+    letter-spacing: -0.02em;
+    margin: 0 0 18px;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    font-family: var(--serif);
+    font-size: 1.2rem;
+    line-height: 1.55;
+    color: var(--ink-2);
+    max-width: 62ch;
+    margin: 0;
+  }
+
+  .byline {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-3);
+    margin: 26px 0 0;
+    line-height: 1.8;
+  }
+
+  /* ---------- status strip ---------- */
+
+  .strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    margin: 34px 0 0;
+  }
+
+  .strip div {
+    background: var(--surface);
+    padding: 16px 18px;
+  }
+
+  .strip dt {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0 0 8px;
+  }
+
+  .strip dd {
+    font-family: var(--serif);
+    font-size: 1.85rem;
+    line-height: 1;
+    margin: 0;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  .strip dd span {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-3);
+    display: block;
+    margin-top: 7px;
+    letter-spacing: 0;
+    line-height: 1.4;
+  }
+
+  /* ---------- layout ---------- */
+
+  .shell { display: block; }
+
+  @media (min-width: 1080px) {
+    .shell {
+      display: grid;
+      grid-template-columns: var(--rail) minmax(0, 1fr);
+      gap: 56px;
+      align-items: start;
+    }
+    .rail {
+      position: sticky;
+      top: 28px;
+      padding-top: 60px;
+    }
+  }
+
+  .rail ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-left: 1px solid var(--rule);
+  }
+
+  .rail a {
+    display: grid;
+    grid-template-columns: 26px 1fr;
+    gap: 8px;
+    padding: 7px 0 7px 14px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    line-height: 1.4;
+    color: var(--ink-3);
+    text-decoration: none;
+    border-left: 2px solid transparent;
+    margin-left: -1px;
+  }
+
+  .rail a:hover { color: var(--ink); }
+  .rail a.active { color: var(--accent); border-left-color: var(--accent); }
+  .rail a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .rail .n { color: var(--ink-3); }
+  .rail a.active .n { color: var(--accent); }
+
+  @media (max-width: 1079px) { .rail { display: none; } }
+
+  /* ---------- sections ---------- */
+
+  section { padding-top: 60px; scroll-margin-top: 20px; }
+
+  h2 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(1.55rem, 3.2vw, 2.05rem);
+    line-height: 1.15;
+    letter-spacing: -0.015em;
+    margin: 0 0 6px;
+    text-wrap: balance;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 14px;
+    align-items: baseline;
+  }
+
+  h2 .n {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+  }
+
+  h3 {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 1rem;
+    letter-spacing: -0.005em;
+    margin: 34px 0 10px;
+  }
+
+  .lede {
+    max-width: var(--measure);
+    color: var(--ink-2);
+    margin: 0 0 26px;
+    padding-left: 26px;
+  }
+
+  p { max-width: var(--measure); }
+
+  section > p, section > ul { padding-left: 26px; }
+
+  @media (max-width: 640px) {
+    .lede, section > p, section > ul { padding-left: 0; }
+    h2 { grid-template-columns: 1fr; gap: 2px; }
+  }
+
+  a { color: var(--accent); }
+
+  code, .m {
+    font-family: var(--mono);
+    font-size: 0.86em;
+    background: var(--surface-2);
+    padding: 1px 5px;
+    border-radius: 2px;
+    word-break: break-word;
+  }
+
+  strong { font-weight: 600; }
+
+  /* ---------- tables ---------- */
+
+  .scroller {
+    overflow-x: auto;
+    border: 1px solid var(--rule);
+    background: var(--surface);
+    margin: 20px 0 8px;
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 13px;
+    min-width: 540px;
+  }
+
+  caption {
+    caption-side: top;
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    padding: 14px 18px 10px;
+  }
+
+  th {
+    font-family: var(--mono);
+    font-weight: 500;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--rule);
+    white-space: nowrap;
+    vertical-align: bottom;
+  }
+
+  td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--rule-soft);
+    vertical-align: top;
+  }
+
+  tbody tr:last-child td { border-bottom: none; }
+
+  .num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+  .mono-cell { font-family: var(--mono); font-size: 11.5px; line-height: 1.5; }
+  .best { color: var(--accent); font-weight: 600; }
+  .muted { color: var(--ink-3); }
+  tr.rule-top td { border-top: 1px solid var(--rule); }
+
+  /* ---------- chips ---------- */
+
+  .chip {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 3px 7px;
+    border-radius: 2px;
+    white-space: nowrap;
+    font-weight: 500;
+  }
+
+  .chip.crit { background: var(--crit-bg); color: var(--crit); }
+  .chip.warn { background: var(--warn-bg); color: var(--warn); }
+  .chip.ok   { background: var(--ok-bg);   color: var(--ok); }
+  .chip.info { background: var(--accent-dim); color: var(--accent); }
+  .chip.off  { background: var(--surface-2); color: var(--ink-3); }
+
+  /* ---------- pipeline ---------- */
+
+  .pipe-wrap { overflow-x: auto; margin: 26px 0 10px; padding-bottom: 6px; }
+
+  .pipe {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 140px;
+    gap: 0;
+    min-width: 900px;
+    align-items: stretch;
+  }
+
+  .stage {
+    border: 1px solid var(--rule);
+    border-right: none;
+    background: var(--surface);
+    padding: 13px 13px 15px;
+    position: relative;
+  }
+
+  .stage:last-child { border-right: 1px solid var(--rule); }
+  .stage.gate { background: var(--accent-dim); border-color: var(--accent); }
+  .stage.pending { background: repeating-linear-gradient(135deg, var(--surface), var(--surface) 6px, var(--surface-2) 6px, var(--surface-2) 12px); }
+
+  .stage .ph {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.1em;
+    color: var(--ink-3);
+    display: block;
+    margin-bottom: 7px;
+  }
+
+  .stage .nm {
+    font-weight: 600;
+    font-size: 12.5px;
+    line-height: 1.25;
+    display: block;
+    margin-bottom: 6px;
+  }
+
+  .stage .ds {
+    font-family: var(--mono);
+    font-size: 10px;
+    line-height: 1.45;
+    color: var(--ink-3);
+    display: block;
+  }
+
+  /* ---------- algorithm cards ---------- */
+
+  .algos { display: grid; gap: 1px; background: var(--rule); border: 1px solid var(--rule); margin: 22px 0 8px; }
+
+  .algo { background: var(--surface); padding: 20px 22px; }
+
+  .algo h4 {
+    font-family: var(--sans);
+    font-size: 14.5px;
+    font-weight: 600;
+    margin: 0 0 4px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 9px;
+    align-items: center;
+  }
+
+  .algo .where {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-3);
+    margin: 0 0 11px;
+    word-break: break-word;
+  }
+
+  .algo p { margin: 0; font-size: 14px; color: var(--ink-2); max-width: 74ch; }
+  .algo p + p { margin-top: 9px; }
+  .algo .why { color: var(--ink); }
+
+  /* ---------- gaps ---------- */
+
+  .gaps { display: grid; gap: 14px; margin: 22px 0 8px; }
+
+  .gap {
+    border: 1px solid var(--rule);
+    border-left: 4px solid var(--ink-3);
+    background: var(--surface);
+    padding: 17px 20px;
+  }
+
+  .gap.sev-crit { border-left-color: var(--crit); }
+  .gap.sev-warn { border-left-color: var(--warn); }
+  .gap.sev-low  { border-left-color: var(--ink-3); }
+
+  .gap h4 {
+    font-family: var(--sans);
+    font-size: 14.5px;
+    font-weight: 600;
+    margin: 0 0 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .gap p { margin: 0; font-size: 14px; color: var(--ink-2); max-width: 74ch; }
+  .gap p + p { margin-top: 8px; }
+
+  /* ---------- provenance ---------- */
+
+  .prov {
+    border: 1px solid var(--rule);
+    border-top: 2px solid var(--accent);
+    background: var(--surface-2);
+    padding: 15px 18px;
+    margin: 24px 0 0;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    line-height: 1.75;
+    color: var(--ink-2);
+    overflow-x: auto;
+  }
+
+  .prov b {
+    display: block;
+    font-weight: 500;
+    font-size: 9.5px;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin-bottom: 8px;
+  }
+
+  .prov span { color: var(--accent); }
+  .prov .cmd { white-space: pre; display: block; }
+
+  /* ---------- callout ---------- */
+
+  .note {
+    border: 1px solid var(--rule);
+    background: var(--surface);
+    padding: 16px 20px;
+    margin: 22px 0;
+    max-width: var(--measure);
+  }
+
+  .note.flag { border-left: 4px solid var(--warn); }
+  .note p { margin: 0; font-size: 14px; color: var(--ink-2); }
+  .note p + p { margin-top: 8px; }
+
+  .note .hd {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--warn);
+    margin-bottom: 8px;
+    display: block;
+  }
+
+  ul.tight { margin: 12px 0; padding-left: 20px; }
+  ul.tight li { margin-bottom: 7px; color: var(--ink-2); max-width: var(--measure); }
+
+  footer {
+    margin-top: 76px;
+    padding-top: 22px;
+    border-top: 2px solid var(--ink);
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-3);
+    line-height: 1.8;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    html { scroll-behavior: smooth; }
+  }
+</style>
+
+<div class="page">
+
+  <header class="masthead">
+    <p class="eyebrow">System review · revision 2 · 1 September 2026</p>
+    <h1>MOCHI Evidence Dossier</h1>
+    <p class="standfirst">Every statistic this system currently rests on, the algorithms that produce them, the tools chosen and rejected, and the places where the evidence does not yet reach. Each exhibit cites the file that produced it and the command that regenerates it.</p>
+    <p class="byline">
+      Middleware for Observing, Classifying, and Handling prompt Injections<br>
+      BS Computer Science, Western Mindanao State University<br>
+      Hans Adrian A. Lao · Jelaine May C. Macias · Rosepel M. Maglangit
+    </p>
+
+    <dl class="strip">
+      <div><dt>Tests</dt><dd>454<span>all passing, 18.0 s</span></dd></div>
+      <div><dt>Coverage</dt><dd>92%<span>2,064 statements</span></dd></div>
+      <div><dt>Evaluated on</dt><dd>82,765<span>cleaned samples</span></dd></div>
+      <div><dt>Feature columns</dt><dd>68<span>~25 free from existing code</span></dd></div>
+      <div><dt>Stage I latency</dt><dd>0.43<span>ms mean · 0.88 p95</span></dd></div>
+      <div><dt>Phases done</dt><dd>12/16<span>Stage III omitted by design</span></dd></div>
+    </dl>
+  </header>
+
+  <div class="shell">
+
+    <nav class="rail" aria-label="Exhibits">
+      <ol>
+        <li><a href="#e1"><span class="n">01</span><span>Request path</span></a></li>
+        <li><a href="#e2"><span class="n">02</span><span>Algorithms</span></a></li>
+        <li><a href="#e3"><span class="n">03</span><span>Detection statistics</span></a></li>
+        <li><a href="#e4"><span class="n">04</span><span>Dataset integrity</span></a></li>
+        <li><a href="#e5"><span class="n">05</span><span>Evasion matrix</span></a></li>
+        <li><a href="#e6"><span class="n">06</span><span>Test evidence</span></a></li>
+        <li><a href="#e7"><span class="n">07</span><span>Tools &amp; file map</span></a></li>
+        <li><a href="#e8"><span class="n">08</span><span>Gaps</span></a></li>
+      </ol>
+    </nav>
+
+    <main>
+
+      <!-- ============ 01 ============ -->
+      <section id="e1">
+        <h2><span class="n">01</span><span>What a request actually passes through</span></h2>
+        <p class="lede">MOCHI is a reverse proxy speaking the OpenAI chat-completions API, so adoption is a base-URL change rather than a code restructure. Everything below happens between the client's request and the upstream model, and again on the way back.</p>
+
+        <div class="pipe-wrap">
+          <div class="pipe">
+            <div class="stage"><span class="ph">Phase 4</span><span class="nm">Segment</span><span class="ds">Split by source tag; assign trust level</span></div>
+            <div class="stage"><span class="ph">Phase 3</span><span class="nm">Normalize</span><span class="ds">NFKC, homoglyphs, invisible chars, decode chains</span></div>
+            <div class="stage gate"><span class="ph">Phase 6</span><span class="nm">Stage I</span><span class="ds">47 regexes, severity-tiered, windowed</span></div>
+            <div class="stage gate"><span class="ph">Phase 8</span><span class="nm">Stage II</span><span class="ds">E5 encoder + attention pooling</span></div>
+            <div class="stage"><span class="ph">Phase 7</span><span class="nm">Session risk</span><span class="ds">5-turn rolling window, upgrade-only</span></div>
+            <div class="stage pending"><span class="ph">Phase 9</span><span class="nm">Stage III</span><span class="ds">LLM arbiter — off by default</span></div>
+            <div class="stage gate"><span class="ph">Phase 10</span><span class="nm">Enforce</span><span class="ds">ALLOW / BLOCK / SANITIZE</span></div>
+            <div class="stage"><span class="ph">—</span><span class="nm">Upstream LLM</span><span class="ds">Forwarded, streaming preserved</span></div>
+            <div class="stage gate"><span class="ph">Phase 11</span><span class="nm">Outbound</span><span class="ds">Exfiltration URLs, verbatim disclosure</span></div>
+            <div class="stage"><span class="ph">Phase 2</span><span class="nm">Telemetry</span><span class="ds">Structured JSONL record</span></div>
+          </div>
+        </div>
+
+        <p>The organising principle across enforcement and outbound handling is the same: <strong>the action targets the segment that is guilty.</strong> A user who types an override instruction <em>is</em> the attack, so the request is blocked. A poisoned web page inside an otherwise legitimate request is not the user's fault, so the payload is redacted and the real question is served. That asymmetry is what the six-tag source taxonomy exists to support.</p>
+
+        <div class="prov">
+          <b>Source</b>
+          <span>mochi/detect/pipeline.py</span> · <span>mochi/detect/segments.py</span> · <span>mochi/mitigate/sanitizer.py</span> · <span>mochi/mitigate/outbound.py</span><br>
+          <b style="margin-top:12px">Run it</b>
+          <span class="cmd">python -m uvicorn mochi.gateway.app:app --reload</span>
+        </div>
+      </section>
+
+      <!-- ============ 02 ============ -->
+      <section id="e2">
+        <h2><span class="n">02</span><span>Algorithms, and how each one works</span></h2>
+        <p class="lede">Nine mechanisms carry the system. For each: what it does, how it works, and the measurement that made it necessary — several were chosen against the library default because a number said the default was wrong.</p>
+
+        <div class="algos">
+
+          <div class="algo">
+            <h4>Unicode NFKC normalization + homoglyph folding <span class="chip ok">Built</span></h4>
+            <p class="where">mochi/preprocess/normalize.py:145 · <code>fold_homoglyphs</code>, <code>dominant_script</code></p>
+            <p>Applies Unicode NFKC compatibility decomposition, then strips zero-width and bidirectional-control characters, then maps Cyrillic and Greek lookalikes onto Latin.</p>
+            <p class="why">The third step exists because NFKC alone does <strong>not</strong> fold homoglyphs — Cyrillic "а" and Latin "a" are genuinely distinct characters, not compatibility variants, so homoglyph substitution survives standard normalization untouched. A separate confusables table is the only thing that catches it.</p>
+          </div>
+
+          <div class="algo">
+            <h4>Iterative multi-layer decoding <span class="chip ok">Built</span></h4>
+            <p class="where">mochi/preprocess/normalize.py:268 · <code>unwrap_encodings</code></p>
+            <p>Attempts base64, hex, URL-encoding and ROT13 decodes in a loop up to <code>MAX_DECODE_DEPTH = 3</code>, gated by a readability heuristic so random API keys and hashes are not surfaced as "decoded text".</p>
+            <p class="why">The guiding rule is <strong>reveal, never discard</strong>: decoded payloads are appended as extra scannable variants rather than replacing the original, because both forms carry signal — the original proves obfuscation was attempted, the decoded form shows what it hid. The depth cap is a resource-exhaustion guard, since nested decoding expands geometrically under attacker control.</p>
+          </div>
+
+          <div class="algo">
+            <h4>Sliding-window chunking with boundary snapping <span class="chip ok">Built</span></h4>
+            <p class="where">mochi/detect/chunking.py · shared by both detection stages</p>
+            <p>Splits text into overlapping character windows, nudging each cut to the nearest whitespace within 64 characters. Stage I uses 20,000-char windows with 512 overlap; Stage II uses a character budget derived from the 512-token encoder limit with 25% overlap.</p>
+            <p class="why">Overlap must exceed the longest matchable span, or a payload straddling a boundary is invisible to both windows — zero-overlap chunking merely trades silent truncation for silent splitting. Justified by measurement: the malicious span occupies a <strong>median 3.4% of its document</strong>, and 14.8% of locatable attacks sit in the document tail, so truncation is the common case for indirect injection rather than an edge case.</p>
+          </div>
+
+          <div class="algo">
+            <h4>Stage I — compiled regex set with severity tiers <span class="chip ok">Built</span></h4>
+            <p class="where">mochi/detect/stage1_syntactic.py · patterns in mochi/patterns.json</p>
+            <p>47 regexes and 13 normalization-flag rules across 9 detectors, compiled once per process and cached. Each detector reports at most one detection per scan, keeping the most severe. Only <code>high</code>-severity matches block; <code>medium</code> and <code>low</code> become signals that feed session risk.</p>
+            <p class="why">The tiering is a false-positive control. Several patterns from the original specification — bare <code>\bOR\b</code>, <code>\bDAN\b</code>, <code>\bbash\b</code> — match ordinary English and would have destroyed the FPR &lt; 1% target outright. Context was tightened for the same reason: <code>ignore previous</code> became <code>ignore … previous &lt;instruction|rule|…&gt;</code>, because the attack always names what it is overriding while "ignore previous emails" does not.</p>
+          </div>
+
+          <div class="algo">
+            <h4>Stage II — E5 encoder with attention pooling <span class="chip warn">Not yet trained</span></h4>
+            <p class="where">training/model.py:39 · <code>intfloat/multilingual-e5-small</code></p>
+            <p>A multilingual E5 encoder with a learned attention-pooling head over token representations, scored chunk-by-chunk with the maximum taken across windows. Thresholds: below 0.45 passes, at or above 0.55 blocks, the band between is resolved by source trust.</p>
+            <p class="why">Mean pooling — the <code>sentence-transformers</code> default — computes <code>0.966 × benign + 0.034 × attack</code> at the measured payload share, landing the document vector almost entirely in benign territory. This is the textbook multiple-instance-learning problem: the bag carries the label, a few instances carry the evidence. Attention pooling lets a 3% span dominate, and the learned weights double as the token attribution that makes SANITIZE implementable. <em>(Ilse, Tomczak &amp; Welling, ICML 2018.)</em></p>
+          </div>
+
+          <div class="algo">
+            <h4>Session risk accumulation <span class="chip ok">Built</span></h4>
+            <p class="where">mochi/session/risk_accumulator.py:41 · window 5, threshold 1.0</p>
+            <p>A per-session rolling deque of the last 5 turn risks. Non-blocking Stage I signals contribute by severity (low 0.15 / medium 0.35 / high 0.70); when the window sum crosses 1.0, escalation triggers. Sessions are LRU-capped at 10,000 with a 30-minute idle TTL.</p>
+            <p class="why">Targets the multi-step priming chain, where three turns each score 0.38–0.43 — under the 0.45 benign threshold — and a stateless pipeline allows all three. Critically, <strong>session risk only upgrades an existing weak signal; it never invents one.</strong> A clean turn in a risky session is still allowed, because escalating on history alone would permanently degrade a session on one unlucky sequence with no evidence attached to the request being judged.</p>
+          </div>
+
+          <div class="algo">
+            <h4>Guilt-targeted enforcement with verified redaction <span class="chip ok">Built</span></h4>
+            <p class="where">mochi/mitigate/sanitizer.py:53 · ALLOW / BLOCK / SANITIZE</p>
+            <p>Maps detections to an action based on which segment is guilty and how much authority its source carries. Redaction replaces the span with a deliberately inert marker containing no imperative verb and no addressee.</p>
+            <p class="why">Two details are load-bearing. A marker reading "IGNORE THE ABOVE" would itself be an injection, so the replacement text is chosen to be unreadable as an instruction. And <strong>a SANITIZE that cannot verify it removed the payload escalates to BLOCK</strong> — the alternative is the worst available outcome, where the log claims mitigation while the attack passes upstream intact.</p>
+          </div>
+
+          <div class="algo">
+            <h4>Outbound URL risk — two independent axes <span class="chip ok">Built</span></h4>
+            <p class="where">mochi/mitigate/url_scanner.py · mochi/mitigate/outbound.py:41</p>
+            <p>Scores each URL in the model's response on two axes: does it fetch without user action (markdown image, <code>&lt;img src&gt;</code>) and does it carry opaque data outward (long base64-ish query values). Disclosure is detected by 8-word n-gram overlap against protected text.</p>
+            <p class="why">Both axes are required because either alone over-fires: blocking every auto-fetched image breaks legitimate image output, and blocking every URL with a query string breaks search links and pagination. Only the <em>combination</em> — fetched without consent, carrying opaque data — has no benign explanation. Disclosure detection is verbatim-only on purpose; detecting paraphrase would require a semantic model of what each deployment considers secret, which MOCHI does not have and will not pretend to.</p>
+          </div>
+
+          <div class="algo">
+            <h4>Statistical apparatus <span class="chip ok">Built</span></h4>
+            <p class="where">eval/token_association.py:60 · eval/stats.py · eval/baseline_models.py</p>
+            <p>Token–class association uses the <strong>chi-square test of independence</strong> on 2×2 contingency tables, with Fisher's exact test substituted whenever an expected cell count falls below 5, and Benjamini–Hochberg FDR control across the whole vocabulary. Effect size is reported as Cramér's V and log-odds with Haldane–Anscombe correction. Model comparison uses a paired t-test with Cohen's d, confidence intervals, and an explicit normality check.</p>
+            <p class="why">Chi-square rather than correlation because both variables are binary categorical — Pearson's r assumes continuous variables and point-biserial still needs one continuous side; both would be the wrong instrument. Yates' correction is deliberately omitted as over-conservative at this sample size. The normality check exists because the thesis originally <em>asserted</em> normality rather than testing it.</p>
+          </div>
+
+        </div>
+
+        <div class="prov">
+          <b>Regenerate the statistical evidence</b>
+          <span class="cmd">python eval/token_association.py --data data/clean --json reports/token_association.json</span>
+          <span class="cmd">python eval/baseline_models.py --data data/clean --json reports/baselines.json</span>
+        </div>
+      </section>
+
+      <!-- ============ 03 ============ -->
+      <section id="e3">
+        <h2><span class="n">03</span><span>Detection statistics</span></h2>
+        <p class="lede">Stage I is a high-precision, low-recall filter — and that is the designed behaviour, not a shortfall. It exists to resolve overt attacks cheaply without spending the semantic budget, which is why the recall figure is the argument for Stage II rather than a verdict on Stage I.</p>
+
+        <div class="scroller">
+          <table>
+            <caption>Stage I versus the no-defence control · 305,708 samples · 5-fold</caption>
+            <thead>
+              <tr><th>Measure</th><th class="num">No defence</th><th class="num">Stage I</th><th class="num">Fold σ</th><th>Reading</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Accuracy</td><td class="num">0.5228</td><td class="num">0.5469</td><td class="num">0.00143</td><td class="muted">Near-balanced corpus; weak measure here</td></tr>
+              <tr><td>Precision</td><td class="num">0.0000</td><td class="num best">0.9700</td><td class="num">0.00292</td><td class="muted">When it fires, it is almost always right</td></tr>
+              <tr><td>Recall</td><td class="num">0.0000</td><td class="num">0.0521</td><td class="num">0.00136</td><td class="muted">Catches only overt, literal phrasing</td></tr>
+              <tr><td>F1</td><td class="num">0.0000</td><td class="num">0.0989</td><td class="num">0.00247</td><td class="muted">Dominated by the recall term</td></tr>
+              <tr><td>False-positive rate</td><td class="num">0.0000</td><td class="num best">0.00147</td><td class="num">0.00013</td><td class="muted">Meets the FPR &lt; 1% requirement</td></tr>
+              <tr><td>Attack success rate</td><td class="num">1.0000</td><td class="num">0.9479</td><td class="num muted">—</td><td class="muted">Complement of recall, not a separate finding</td></tr>
+              <tr class="rule-top"><td>True positives</td><td class="num">0</td><td class="num">7,601</td><td class="num muted">—</td><td class="muted"></td></tr>
+              <tr><td>False positives</td><td class="num">0</td><td class="num">235</td><td class="num muted">—</td><td class="muted">Out of 159,832 benign</td></tr>
+              <tr><td>False negatives</td><td class="num">145,876</td><td class="num">138,275</td><td class="num muted">—</td><td class="muted"></td></tr>
+              <tr><td>Latency, mean</td><td class="num">0.00 ms</td><td class="num">0.43 ms</td><td class="num muted">—</td><td class="muted">p95 = 0.88 ms; 140.7 s wall for the full run</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Classical baselines — what a linear model achieves before any transformer</h3>
+        <p>Run to establish whether a fine-tuned transformer earns its cost, given that the alternative is ~2.5 GB of dependencies and 30–55 ms per request against a budget a linear model meets in microseconds.</p>
+
+        <div class="scroller">
+          <table>
+            <caption>scikit-learn baselines · trained on data/clean · 200,000 features each</caption>
+            <thead>
+              <tr><th>Model</th><th class="num">F1</th><th class="num">Precision</th><th class="num">Recall</th><th class="num">FPR</th><th class="num">Train</th><th class="num">µs / pred</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>TF-IDF word + LinearSVC</td><td class="num best">0.6966</td><td class="num">0.7539</td><td class="num">0.6474</td><td class="num">0.1150</td><td class="num">5.8 s</td><td class="num">106.6</td></tr>
+              <tr><td>TF-IDF char + logistic reg.</td><td class="num">0.6903</td><td class="num best">0.7717</td><td class="num">0.6245</td><td class="num best">0.1006</td><td class="num">20.4 s</td><td class="num">537.9</td></tr>
+              <tr><td>TF-IDF word + logistic reg.</td><td class="num">0.6813</td><td class="num">0.7378</td><td class="num">0.6328</td><td class="num">0.1224</td><td class="num">7.0 s</td><td class="num">105.9</td></tr>
+              <tr><td>TF-IDF word + naive Bayes</td><td class="num">0.6056</td><td class="num">0.7071</td><td class="num">0.5295</td><td class="num">0.1194</td><td class="num">5.5 s</td><td class="num">112.4</td></tr>
+              <tr class="rule-top"><td class="muted">Stage I regex, for scale</td><td class="num muted">0.0989</td><td class="num muted">0.9700</td><td class="num muted">0.0521</td><td class="num muted">0.0015</td><td class="num muted">n/a</td><td class="num muted">550</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="note" style="border-left:4px solid var(--ok)">
+          <span class="hd" style="color:var(--ok)">Comparability break — resolved 1 September 2026</span>
+          <p>The Stage I figures previously came from the raw <code>data/</code> tree (305,708 rows, including the excluded deepset rows and an uncapped jayavibhav) while the baselines came from <code>data/clean/</code> (82,765). Stage I has been re-run on the clean corpus:</p>
+          <p style="font-family:var(--mono);font-size:12px;line-height:1.9;margin-top:10px">
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;precision&nbsp;&nbsp;&nbsp;recall&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;F1&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;FPR<br>
+            raw&nbsp;&nbsp;&nbsp;&nbsp;(305k)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;0.9700&nbsp;&nbsp;&nbsp;0.0521&nbsp;&nbsp;0.0989&nbsp;&nbsp;0.00147<br>
+            clean&nbsp;&nbsp;(&nbsp;82k)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--accent)">0.9728&nbsp;&nbsp;&nbsp;0.0590&nbsp;&nbsp;0.1112&nbsp;&nbsp;0.00126</span>
+          </p>
+          <p>Every conclusion holds — recall is marginally better and FPR marginally lower on the clean corpus — but the numbers are now comparable to everything else reported. The clean figures are the ones to cite.</p>
+        </div>
+
+        <h3>Phase 6.5 ablation — do engineered features add anything?</h3>
+        <p>71 engineered columns, computed by the same code that runs at request time, added to the 200,000-feature TF-IDF baseline.</p>
+
+        <div class="scroller">
+          <table>
+            <caption>reports/hybrid_ablation.json · same splits, seed 42</caption>
+            <thead>
+              <tr><th>Variant</th><th class="num">Precision</th><th class="num">Recall</th><th class="num">F1</th><th class="num">FPR</th><th class="num">Features</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>TF-IDF only (control)</td><td class="num">0.7378</td><td class="num">0.6328</td><td class="num">0.6813</td><td class="num best">0.1224</td><td class="num">200,000</td></tr>
+              <tr><td>Engineered only</td><td class="num">0.5291</td><td class="num">0.6228</td><td class="num">0.5721</td><td class="num">0.3017</td><td class="num best">71</td></tr>
+              <tr><td>TF-IDF + engineered</td><td class="num">0.7402</td><td class="num best">0.7671</td><td class="num best">0.7534</td><td class="num">0.1466</td><td class="num">200,071</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>Adding 71 columns to 200,000 raises F1 by <strong>+0.0721</strong> and recall by <strong>+0.134</strong> at essentially unchanged precision — so the engineered features are catching attacks the bag of n-grams misses entirely, which is what the obfuscation family was predicted to do. The hybrid also overtakes the previous best classical model. The cost is FPR, 0.1224 → 0.1466; both remain an order of magnitude above the FPR &lt; 1% requirement, so neither is deployable as a front-line filter and the features stay analysis-only until Stage II exists to compare against.</p>
+
+        <h3>N-gram ablation — A9</h3>
+        <div class="scroller">
+          <table>
+            <caption>Peak effect size does not move. Contamination does.</caption>
+            <thead>
+              <tr><th>n-gram range</th><th class="num">Tested</th><th class="num">Significant</th><th class="num">Max V</th><th class="num">Multiword in top 50</th><th class="num">Benign contamination</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>1 (unigram)</td><td class="num">10,013</td><td class="num">4,727</td><td class="num">0.291</td><td class="num">0 / 50</td><td class="num">22.1%</td></tr>
+              <tr><td>1–2</td><td class="num">30,693</td><td class="num">16,746</td><td class="num">0.291</td><td class="num">21 / 50</td><td class="num best">13.5%</td></tr>
+              <tr><td>1–3</td><td class="num">42,261</td><td class="num">25,728</td><td class="num">0.291</td><td class="num">21 / 50</td><td class="num">13.8%</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p><strong>Cramér's V is the wrong instrument for this question</strong> — it is symmetric and penalises rarity, and every bigram is rarer than its parts, so peak V cannot rise. What moves is <em>contamination</em>: the share of a term's occurrences sitting on benign text, which is the false-positive rate that term would produce as a Stage I rule.</p>
+
+        <p style="font-family:var(--mono);font-size:12px;line-height:1.9">
+          previous&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;4,184 malicious /&nbsp;&nbsp;746 benign&nbsp;&nbsp;&nbsp;&nbsp;15.1% contaminated<br>
+          <span style="color:var(--accent)">previous instructions&nbsp;&nbsp;&nbsp;2,439 malicious /&nbsp;&nbsp;&nbsp;&nbsp;9 benign&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;0.4% contaminated</span>
+        </p>
+
+        <p>Same phrase family, an <strong>83× cleaner indicator</strong>, and a <em>lower</em> V (0.198 vs 0.211). Reporting V alone would have hidden the finding entirely. Recommendation: <strong>n = 1–2</strong>; trigrams add 11,568 terms and make contamination marginally worse.</p>
+
+        <h3>Token–class association</h3>
+        <p>Across 82,765 samples (35,838 malicious / 46,927 benign), 10,013 tokens at document frequency ≥ 30 were tested. <strong>4,727 remained significant</strong> after Benjamini–Hochberg correction at FDR 0.05 — 47.2% of the vocabulary. The strongest single effect is <code>instructions</code> at Cramér's V = 0.291, and only 126 tokens (1.3%) reach V ≥ 0.10 at all. At this sample size significance is nearly free; effect size carries the finding.</p>
+
+        <div class="prov">
+          <b>Source</b>
+          <span>reports/stage1.json</span> · <span>reports/baseline.json</span> · <span>reports/baselines.json</span> · <span>reports/token_association.json</span><br>
+          <b style="margin-top:12px">Regenerate</b>
+          <span class="cmd">python eval/run_detection.py --data data/ --config baseline --json reports/baseline.json</span>
+          <span class="cmd">python eval/run_detection.py --data data/ --config stage1  --json reports/stage1.json</span>
+        </div>
+      </section>
+
+      <!-- ============ 04 ============ -->
+      <section id="e4">
+        <h2><span class="n">04</span><span>Dataset integrity</span></h2>
+        <p class="lede">The audit found four problems serious enough to change the methodology. Each is recorded because a corpus flaw discovered after the results table is a retracted results table.</p>
+
+        <div class="scroller">
+          <table>
+            <caption>Corpus composition, as downloaded</caption>
+            <thead>
+              <tr><th>Source</th><th class="num">Rows</th><th class="num">Benign</th><th class="num">Malicious</th><th class="num">Exact dupes</th><th class="num">Median tokens</th><th>Disposition</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>jayavibhav</td><td class="num">261,737</td><td class="num">132,505</td><td class="num">129,232</td><td class="num">663</td><td class="num">87</td><td><span class="chip warn">Capped at 40,000</span></td></tr>
+              <tr><td>promptshield_test</td><td class="num">23,516</td><td class="num">17,030</td><td class="num">6,486</td><td class="num">174</td><td class="num">106</td><td><span class="chip ok">Official split kept</span></td></tr>
+              <tr><td>promptshield_train</td><td class="num">18,909</td><td class="num">9,457</td><td class="num">9,452</td><td class="num">0</td><td class="num">78</td><td><span class="chip ok">Official split kept</span></td></tr>
+              <tr><td>promptshield_validation</td><td class="num">1,000</td><td class="num">497</td><td class="num">503</td><td class="num">0</td><td class="num">76</td><td><span class="chip ok">Official split kept</span></td></tr>
+              <tr><td>deepset</td><td class="num">546</td><td class="num">343</td><td class="num">203</td><td class="num">0</td><td class="num">16</td><td><span class="chip crit">Excluded entirely</span></td></tr>
+              <tr class="rule-top"><td><strong>After cleaning</strong></td><td class="num"><strong>82,765</strong></td><td class="num">46,927</td><td class="num">35,838</td><td class="num">—</td><td class="num">—</td><td class="muted">43.3% malicious</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Findings that changed the methodology</h3>
+        <ul class="tight">
+          <li><strong>deepset is fully redundant.</strong> All 546 rows appear in jayavibhav already (550 exact-match pairs). Including it would have inflated the reported corpus size while adding zero new examples. Moved to <code>data/excluded/</code>, where the loader's non-recursive glob ignores it but the rejection stays re-verifiable.</li>
+          <li><strong>Cross-dataset leakage exists.</strong> 17 exact and 97 near-duplicate pairs between jayavibhav and promptshield_test, plus 29 near-duplicates between PromptShield's own train and validation splits. Untreated, this is train/test contamination that inflates every downstream number.</li>
+          <li><strong>254 rows carry contradictory labels</strong> — byte-identical text labelled both benign and malicious across sources. An irreducible noise floor no classifier can cross.</li>
+          <li><strong>Signal position is not uniform.</strong> Of 310 locatable attack spans, 169 sit in the document head, 95 in the middle, and <strong>46 (14.8%) in the tail</strong>. Any head-truncating detector silently discards roughly one attack in seven — which is precisely why both stages window rather than truncate.</li>
+          <li><strong>jayavibhav dominated at 86% of the raw corpus.</strong> Left uncapped, a Stage II classifier optimises for that one distribution and PromptShield — the application-representative source with a peer-reviewed paper behind it — becomes a rounding error. The 40,000-row cap is a representativeness measure, not a token-cost measure.</li>
+        </ul>
+
+        <div class="prov">
+          <b>Source</b>
+          <span>reports/audit.json</span> · <span>eval/audit_datasets.py</span> · <span>eval/clean_datasets.py:75</span> (<code>DATASET_CAPS</code>)<br>
+          <b style="margin-top:12px">Regenerate</b>
+          <span class="cmd">python eval/audit_datasets.py --data data/ --json reports/audit.json</span>
+          <span class="cmd">python eval/clean_datasets.py</span>
+        </div>
+      </section>
+
+      <!-- ============ 05 ============ -->
+      <section id="e5">
+        <h2><span class="n">05</span><span>Evasion matrix</span></h2>
+        <p class="lede">Fifteen obfuscation techniques run against a naive detector and against MOCHI's normalization layer. <span class="chip off">Blind</span> means the technique defeated the detector; <span class="chip info">Sees</span> means the payload was recovered. The last two rows are benign controls that must produce no flags at all.</p>
+
+        <div class="scroller">
+          <table>
+            <caption>reports/evasion-matrix.csv · 15 techniques, 15 passing</caption>
+            <thead>
+              <tr><th>Technique</th><th>Source</th><th>Naive</th><th>MOCHI</th><th>Flags raised</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Plaintext (control)</td><td class="muted">user_input</td><td><span class="chip info">Sees</span></td><td><span class="chip info">Sees</span></td><td class="mono-cell muted">—</td></tr>
+              <tr><td>Zero-width split</td><td class="muted">user_input</td><td><span class="chip off">Blind</span></td><td><span class="chip info">Sees</span></td><td class="mono-cell">zero_width_chars_detected</td></tr>
+              <tr><td>Cyrillic homoglyphs</td><td class="muted">user_input</td><td><span class="chip off">Blind</span></td><td><span class="chip info">Sees</span></td><td class="mono-cell">mixed_script_detected · homoglyphs_normalized</td></tr>
+              <tr><td>Full-width Unicode</td><td class="muted">user_input</td><td><span class="chip off">Blind</span></td><td><span class="chip info">Sees</span></td><td class="mono-cell">unicode_nfkc_applied</td></tr>
+              <tr><td>Base64 wrapper</td><td class="muted">user_input</td><td><span class="chip off">Blind</span></td><td><span class="chip info">Sees</span></td><td class="mono-cell">base64_decoded</td></tr>
+              <tr><td>Base64 nested ×2</td><td class="muted">user_input</td><td><span class="chip off">Blind</span></td><td><span class="chip info">Sees</span></td><td class="mono-cell">base64_decoded</td></tr>
+              <tr><td>Hex encoding</td><td class="muted">user_input</td><td><span class="chip off">Blind</span></td><td><span class="chip info">Sees</span></td><td class="mono-cell">hex_decoded</td></tr>
+              <tr><td>ROT13</td><td class="muted">user_input</td><td><span class="chip off">Blind</span></td><td><span class="chip info">Sees</span></td><td class="mono-cell">rot13_decoded</td></tr>
+              <tr><td>HTML <code>display:none</code></td><td class="muted">web_content</td><td><span class="chip info">Sees</span></td><td><span class="chip info">Sees</span></td><td class="mono-cell">html_stripped · hidden_css_detected</td></tr>
+              <tr><td>HTML comment</td><td class="muted">web_content</td><td><span class="chip off">Blind</span></td><td><span class="chip info">Sees</span></td><td class="mono-cell">html_comment_extracted</td></tr>
+              <tr><td>Image alt-text</td><td class="muted">web_content</td><td><span class="chip off">Blind</span></td><td><span class="chip info">Sees</span></td><td class="mono-cell">attribute_text_extracted</td></tr>
+              <tr><td>White-on-white text</td><td class="muted">web_content</td><td><span class="chip info">Sees</span></td><td><span class="chip info">Sees</span></td><td class="mono-cell">hidden_css_detected</td></tr>
+              <tr><td>Base64 in hidden div</td><td class="muted">web_content</td><td><span class="chip off">Blind</span></td><td><span class="chip info">Sees</span></td><td class="mono-cell">base64_decoded · hidden_css_detected</td></tr>
+              <tr class="rule-top"><td>Benign control</td><td class="muted">user_input</td><td><span class="chip off">Blind</span></td><td><span class="chip off">Blind</span></td><td class="mono-cell muted">none — required</td></tr>
+              <tr><td>Benign HTML question</td><td class="muted">user_input</td><td><span class="chip off">Blind</span></td><td><span class="chip off">Blind</span></td><td class="mono-cell muted">none — required</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>The two rows worth defending at a panel are <strong>HTML comment</strong> and <strong>image alt-text</strong>: both are dropped by a naive <code>get_text()</code> extraction, meaning the payload would never reach a detector at all. No amount of detector sophistication recovers text the parser already discarded — which is the argument for putting extraction upstream of detection.</p>
+
+        <div class="prov">
+          <b>Source</b>
+          <span>reports/evasion-matrix.csv</span> · <span>demo/evasion_demo.py</span> · <span>mochi/preprocess/html_extract.py</span><br>
+          <b style="margin-top:12px">Regenerate</b>
+          <span class="cmd">python demo/evasion_demo.py</span>
+        </div>
+      </section>
+
+      <!-- ============ 06 ============ -->
+      <section id="e6">
+        <h2><span class="n">06</span><span>Test evidence</span></h2>
+        <p class="lede">431 tests, all passing, 92% statement coverage over 1,872 statements. Stage II is tested entirely through a deterministic stub scorer, so every code path around the model is exercised without installing a 2.5 GB dependency.</p>
+
+        <div class="scroller">
+          <table>
+            <caption>Coverage by module · regenerated 31 August 2026</caption>
+            <thead>
+              <tr><th>Module</th><th class="num">Stmts</th><th class="num">Miss</th><th class="num">Cover</th><th>Note</th></tr>
+            </thead>
+            <tbody>
+              <tr><td class="mono-cell">detect/pipeline.py</td><td class="num">134</td><td class="num">2</td><td class="num best">99%</td><td class="muted"></td></tr>
+              <tr><td class="mono-cell">detect/segments.py</td><td class="num">68</td><td class="num">1</td><td class="num best">99%</td><td class="muted"></td></tr>
+              <tr><td class="mono-cell">detect/stage1_syntactic.py</td><td class="num">177</td><td class="num">4</td><td class="num best">98%</td><td class="muted"></td></tr>
+              <tr><td class="mono-cell">mitigate/outbound.py</td><td class="num">103</td><td class="num">2</td><td class="num best">98%</td><td class="muted"></td></tr>
+              <tr><td class="mono-cell">mitigate/sanitizer.py</td><td class="num">164</td><td class="num">4</td><td class="num best">98%</td><td class="muted"></td></tr>
+              <tr><td class="mono-cell">preprocess/html_extract.py</td><td class="num">64</td><td class="num">1</td><td class="num best">98%</td><td class="muted"></td></tr>
+              <tr><td class="mono-cell">detect/chunking.py</td><td class="num">65</td><td class="num">4</td><td class="num">94%</td><td class="muted"></td></tr>
+              <tr><td class="mono-cell">gateway/config.py</td><td class="num">55</td><td class="num">4</td><td class="num">93%</td><td class="muted"></td></tr>
+              <tr><td class="mono-cell">gateway/app.py</td><td class="num">131</td><td class="num">11</td><td class="num">92%</td><td class="muted"></td></tr>
+              <tr><td class="mono-cell">mitigate/url_scanner.py</td><td class="num">106</td><td class="num">9</td><td class="num">92%</td><td class="muted"></td></tr>
+              <tr><td class="mono-cell">preprocess/normalize.py</td><td class="num">188</td><td class="num">17</td><td class="num">91%</td><td class="muted"></td></tr>
+              <tr><td class="mono-cell">gateway/models.py</td><td class="num">43</td><td class="num">4</td><td class="num">91%</td><td class="muted"></td></tr>
+              <tr><td class="mono-cell">detect/stage2_semantic.py</td><td class="num">155</td><td class="num">41</td><td class="num" style="color:var(--warn)">74%</td><td class="muted">Real-model paths unreachable without weights</td></tr>
+              <tr><td class="mono-cell">gateway/adapters/openai_adapter.py</td><td class="num">29</td><td class="num">8</td><td class="num" style="color:var(--warn)">72%</td><td class="muted">Live upstream paths not exercised</td></tr>
+              <tr><td class="mono-cell">preprocess/file_extract.py</td><td class="num">63</td><td class="num">22</td><td class="num" style="color:var(--warn)">65%</td><td class="muted">PDF branches thinly covered</td></tr>
+              <tr><td class="mono-cell">preprocess/preprocessor.py</td><td class="num">49</td><td class="num">18</td><td class="num" style="color:var(--warn)">63%</td><td class="muted">Weakest module in the tree</td></tr>
+              <tr class="rule-top"><td><strong>Total</strong></td><td class="num"><strong>1,872</strong></td><td class="num"><strong>155</strong></td><td class="num best"><strong>92%</strong></td><td class="muted">12 files at complete coverage</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="note" style="border-left:4px solid var(--ok)">
+          <span class="hd" style="color:var(--ok)">Stale artefact — resolved 1 September 2026</span>
+          <p>The committed <code>reports/coverage/</code> report showed <strong>69%</strong> across 20 modules and contained <em>none</em> of the detection code — it predated Phase 6. It has been regenerated: <strong>30 modules, 92% over 2,064 statements, 454 tests.</strong></p>
+          <p>The table above is from that run. <code>mochi/preprocess/features.py</code>, added in Phase 6.5, enters at 98%.</p>
+        </div>
+
+        <div class="prov">
+          <b>Regenerate</b>
+          <span class="cmd">python -m pytest -q --cov=mochi --cov-report=term-missing</span>
+          <span class="cmd">python -m pytest --cov=mochi --cov-report=html:reports/coverage --html=reports/test-report.html</span>
+        </div>
+      </section>
+
+      <!-- ============ 07 ============ -->
+      <section id="e7">
+        <h2><span class="n">07</span><span>Tools, why they were chosen, and where they are declared</span></h2>
+        <p class="lede">The dependency list is deliberately short. The runtime install is roughly 60 MB; the deep-learning stack is quarantined behind a feature flag so anyone evaluating MOCHI with Stage I only never pays for it.</p>
+
+        <div class="scroller">
+          <table>
+            <caption>Adopted — every tool in the tree</caption>
+            <thead>
+              <tr><th>Tool</th><th>Why this one</th><th>Declared in</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><strong>FastAPI</strong> + <strong>uvicorn</strong></td><td>ASGI gateway exposing an OpenAI-compatible surface, so integration is a base-URL change with no SDK to adopt.</td><td class="mono-cell">mochi/gateway/app.py</td></tr>
+              <tr><td><strong>httpx</strong></td><td>Async upstream forwarding with streaming preserved end-to-end.</td><td class="mono-cell">mochi/gateway/adapters/openai_adapter.py</td></tr>
+              <tr><td><strong>pydantic</strong></td><td>Request/response schema validation at the boundary.</td><td class="mono-cell">mochi/gateway/models.py</td></tr>
+              <tr><td><strong>beautifulsoup4</strong></td><td>Recovers hidden HTML channels a naive <code>get_text()</code> drops — comments, alt text, <code>display:none</code>. Two evasion-matrix rows depend on it.</td><td class="mono-cell">mochi/preprocess/html_extract.py</td></tr>
+              <tr><td><strong>pdfplumber</strong></td><td>PDF body text plus document metadata, which is itself an injection channel.</td><td class="mono-cell">mochi/preprocess/file_extract.py</td></tr>
+              <tr><td><strong>stdlib <code>re</code></strong></td><td>Stage I. Patterns externalised to JSON so they are revisable without a code change or redeploy.</td><td class="mono-cell">mochi/detect/stage1_syntactic.py<br>mochi/patterns.json</td></tr>
+              <tr><td><strong>stdlib <code>unicodedata</code></strong></td><td>NFKC folding and Unicode script detection for the homoglyph path.</td><td class="mono-cell">mochi/preprocess/normalize.py:153</td></tr>
+              <tr><td><strong>stdlib <code>base64</code>, <code>binascii</code>, <code>codecs</code>, <code>urllib.parse</code></strong></td><td>The four decode layers. No third-party dependency justified for any of them.</td><td class="mono-cell">mochi/preprocess/normalize.py:268</td></tr>
+              <tr><td><strong>stdlib <code>threading</code>, <code>deque</code>, <code>OrderedDict</code></strong></td><td>Bounded, thread-safe session state with LRU eviction.</td><td class="mono-cell">mochi/session/risk_accumulator.py</td></tr>
+              <tr><td><strong>torch</strong> + <strong>transformers</strong></td><td>Stage II encoder and the custom attention-pooling head. <strong>Deliberately not installed by default</strong> — commented out, gated behind <code>MOCHI_ENABLE_STAGE2</code>.</td><td class="mono-cell">training/model.py<br>requirements.txt (commented)</td></tr>
+              <tr><td><strong>scikit-learn</strong></td><td>Classical baselines and evaluation metrics. Establishes what a linear model achieves before a transformer is justified.</td><td class="mono-cell">eval/baseline_models.py</td></tr>
+              <tr><td><strong>scipy.stats</strong></td><td><code>chi2_contingency</code>, <code>fisher_exact</code>, paired t-test, normality check.</td><td class="mono-cell">eval/token_association.py:88<br>eval/stats.py</td></tr>
+              <tr><td><strong>pandas</strong></td><td>CSV/TSV/Parquet loading across four corpora with disagreeing schemas.</td><td class="mono-cell">eval/data_loading.py</td></tr>
+              <tr><td><strong>pytest</strong> + <strong>pytest-cov</strong> + <strong>pytest-html</strong></td><td>431 tests plus the standalone HTML report for the thesis appendix.</td><td class="mono-cell">tests/ · requirements.txt</td></tr>
+              <tr><td><strong>python-docx</strong></td><td>Generates the adviser comments register, so the document cannot drift from the code.</td><td class="mono-cell">docs/generate_comments_register.py</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Rejected — and the reason, which is usually the more defensible half</h3>
+
+        <div class="scroller">
+          <table>
+            <caption>Considered and declined</caption>
+            <thead>
+              <tr><th>Not used</th><th>Reason</th><th>Recorded in</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><strong>sentence-transformers</strong></td><td>Its default mean pooling is the exact behaviour Stage II must avoid — at a 3.4% median payload share the malicious direction is averaged into noise. The encoder is loaded through <code>transformers</code> directly so the pooling layer stays ours.</td><td class="mono-cell">requirements.txt<br>training/model.py</td></tr>
+              <tr><td><strong>deepset/prompt-injections</strong></td><td>All 546 rows already present in jayavibhav. Zero new examples; inclusion would inflate the reported corpus size.</td><td class="mono-cell">data/excluded/deepset.csv</td></tr>
+              <tr><td><strong>MCP-ATTACKBENCH</strong></td><td>Never publicly released — the MCP-Guard paper promises a future release with no link. Cannot be cited as used.</td><td class="mono-cell">data/README.md</td></tr>
+              <tr><td><strong>Stage III LLM arbiter</strong></td><td>Off by default. An unbudgeted LLM call per uncertain request breaks the latency claim; the uncertain band is resolved by source trust instead.</td><td class="mono-cell">requirements.txt (openai commented)</td></tr>
+              <tr><td><strong>Redis session store</strong></td><td>An in-process dict is correct for the single-instance deployment the thesis evaluates. A distributed store would add a dependency the results do not exercise.</td><td class="mono-cell">mochi/session/risk_accumulator.py</td></tr>
+              <tr><td><strong>POS / stopword removal</strong></td><td>Injection lives in imperative-verb-plus-object structure; stripping function words destroys the signal and creates train/serve mismatch, since runtime text is never stripped.</td><td class="mono-cell">Register item A2</td></tr>
+              <tr><td><strong>spaCy / NLTK</strong></td><td><span class="chip warn">Open question</span> Register item Q1 is unanswered. The proposed Stage 1.5 imperative detector depends on this choice.</td><td class="mono-cell">Register items A1, A3, Q1, Q5</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="prov">
+          <b>Source</b>
+          <span>requirements.txt</span> · <span>docs/generate_comments_register.py</span> · <span>docs/MOCHI_Comments_Register.docx</span><br>
+          <b style="margin-top:12px">Regenerate the register</b>
+          <span class="cmd">python docs/generate_comments_register.py</span>
+        </div>
+      </section>
+
+      <!-- ============ 08 ============ -->
+      <section id="e8">
+        <h2><span class="n">08</span><span>Gaps, by how much they threaten the claims</span></h2>
+        <p class="lede">Ordered by risk to the thesis rather than by effort. The first three are the ones that would be asked about at a defence.</p>
+
+        <div class="gaps">
+
+          <div class="gap sev-crit">
+            <h4>Stage II has never been trained <span class="chip crit">Critical</span></h4>
+            <p>No <code>models/</code> directory exists. Every Stage II code path is exercised through a stub scorer, which validates the plumbing but produces no accuracy number. The system's headline claim — that semantic detection closes the 5.2% recall gap — is <strong>currently unevidenced</strong>.</p>
+            <p>Everything needed is in place: <code>training/finetune_e5.py</code>, an RTX 4070 with 8 GB, and a cleaned corpus. At 8 GB the specified batch size of 32 at 512 tokens will need fp16 or gradient accumulation.</p>
+          </div>
+
+          <div class="gap" style="border-left-color:var(--ok)">
+            <h4>Stage I and the baselines measured on different corpora <span class="chip ok">Resolved</span></h4>
+            <p>Stage I re-run on <code>data/clean/</code>: precision 0.9728, recall 0.0590, F1 0.1112, FPR 0.00126. Every number in this dossier now comes from the same 82,765-row corpus. The raw-tree figures are retained in <code>reports/stage1.json</code> for provenance only.</p>
+          </div>
+
+          <div class="gap sev-crit">
+            <h4>The corpus teaches shortcuts, and the bias is broader than first measured <span class="chip crit">Upgraded to critical</span></h4>
+            <p>The word-cloud figure surfaced more than the token table did. Benchmark artifacts are as expected — <code>pwned</code> (2,789 malicious / 0 benign), <code>kermode</code>, <code>kermodei</code>, <code>gribbell</code>, <code>ursus</code>, <code>americanus</code>, <code>few_shot_examples</code>, <code>sda</code>, <code>yool</code>: <strong>14 of the top 150.</strong></p>
+            <p>The unexpected part is a large Spanish block sitting among them: <code>gracias</code>, <code>esta</code>, <code>volvi</code>, <code>libro</code>, <code>biblioteca</code>, <code>hola</code>, <code>gusta</code>, <code>donde</code>, <code>clave</code>, <code>por</code>, <code>sido</code>, <code>negro</code>, <code>secreta</code>. This is not three stray tokens — it is a systematic pattern.</p>
+            <p><strong>The corpus does not merely contain benchmark markers; it teaches that non-English text is malicious.</strong> That makes the A14 Taglish evaluation a requirement rather than an enhancement, and it means benign-Taglish false-positive rate must be reported separately from the pooled FPR.</p>
+          </div>
+
+          <div class="gap sev-warn">
+            <h4>No Tagalog or code-switched evaluation data <span class="chip warn">Significant</span></h4>
+            <p>The encoder is already multilingual (<code>intfloat/multilingual-e5-small</code>), so the model layer is not the obstacle — but there is no code-switched test set, so multilingual robustness is currently an assumption. Note that <code>dominant_script()</code> detects mixed Unicode <em>script</em>, not mixed <em>language</em>; the two are unrelated for Taglish, which is Latin script throughout.</p>
+          </div>
+
+          <div class="gap" style="border-left-color:var(--ok)">
+            <h4>Token association is unigram-only <span class="chip ok">Resolved</span></h4>
+            <p><code>--ngram-max</code> and <code>--ablation</code> added, unigram default preserved so previously cited figures stay reproducible. The finding: benign contamination among the top 50 associations falls from 22.1% to 13.5% at bigrams, while peak Cramér's V does not move at all — V penalises rarity and is the wrong instrument here.</p>
+          </div>
+
+          <div class="gap" style="border-left-color:var(--ok)">
+            <h4>Committed coverage report stale by 23 points <span class="chip ok">Resolved</span></h4>
+            <p>Regenerated: 30 modules, 92% over 2,064 statements, 454 tests passing.</p>
+          </div>
+
+          <div class="gap sev-warn">
+            <h4>Ten feature columns are constant on this corpus <span class="chip warn">Significant</span></h4>
+            <p><code>html_stripped</code>, <code>hidden_css_detected</code>, <code>html_comment_extracted</code>, <code>attribute_text_extracted</code>, <code>file_metadata_extracted</code>, <code>has_bidi</code> and four resource guards never vary across all 82,765 rows.</p>
+            <p>Not a bug in the extractor — the corpus is almost entirely short plain-text prompts, so the HTML and file-extraction paths never fire. It is the same representativeness limit already recorded for Stage II dilution: <strong>this corpus cannot exercise the indirect-injection channels MOCHI is built to defend.</strong> Those columns will carry signal only against a document-bearing fixture set, which does not yet exist (register item D11).</p>
+          </div>
+
+          <div class="gap sev-low">
+            <h4>Phases 12–14 not started <span class="chip off">Planned</span></h4>
+            <p>Multi-provider adapters, full evaluation, and packaging remain. The gateway currently speaks only the OpenAI dialect, so the "provider-agnostic" framing is a design intention rather than a demonstrated property.</p>
+          </div>
+
+          <div class="gap sev-low">
+            <h4>Session state is single-instance by design <span class="chip off">Accepted</span></h4>
+            <p>An in-process dict means risk accumulation is incorrect across replicas. Deliberate and documented — the evaluated deployment is single-instance — but it bounds any deployment claim, and is worth stating before a panel does.</p>
+          </div>
+
+          <div class="gap sev-low">
+            <h4>Weakest-covered modules are the extraction paths <span class="chip off">Minor</span></h4>
+            <p><code>preprocessor.py</code> at 63% and <code>file_extract.py</code> at 65%. PDF extraction in particular is an untrusted-input surface, which is where thin coverage matters most.</p>
+          </div>
+
+        </div>
+
+        <div class="prov">
+          <b>Cross-reference</b>
+          <span>docs/MOCHI_Comments_Register.docx</span> — 8 adviser items (A), 13 audit findings (D), 12 thesis edits (T), 8 open questions (Q)
+        </div>
+      </section>
+
+      <footer>
+        MOCHI Evidence Dossier · revised 1 September 2026 after Wave A · reports/ regenerated against data/clean<br>
+        Every figure above is reproducible with the command printed beneath its exhibit.<br>
+        Where a number could not be verified from a committed artefact, the exhibit says so.
+      </footer>
+
+    </main>
+  </div>
+</div>
+
+<script>
+  (function () {
+    var links = Array.prototype.slice.call(document.querySelectorAll('.rail a'));
+    var map = {};
+    links.forEach(function (a) { map[a.getAttribute('href').slice(1)] = a; });
+    var sections = Array.prototype.slice.call(document.querySelectorAll('main section'));
+    if (!('IntersectionObserver' in window) || !sections.length) return;
+
+    var visible = {};
+    var observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) { visible[entry.target.id] = entry.isIntersecting; });
+      var current = null;
+      for (var i = 0; i < sections.length; i++) {
+        if (visible[sections[i].id]) { current = sections[i].id; break; }
+      }
+      links.forEach(function (a) { a.classList.remove('active'); });
+      if (current && map[current]) map[current].classList.add('active');
+    }, { rootMargin: '-10% 0px -70% 0px', threshold: 0 });
+
+    sections.forEach(function (s) { observer.observe(s); });
+  })();
+</script>

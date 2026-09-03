@@ -33,6 +33,7 @@ from mochi.gateway.adapters import UpstreamError, get_adapter
 from mochi.gateway.config import get_settings
 from mochi.gateway.models import ChatCompletionRequest
 from mochi.mitigate import BLOCK_STATUS, enforce, protected_text, scan_completion
+from mochi.preprocess import detect_language
 from mochi.session import RiskAccumulator
 from mochi.telemetry import (
     MitigationAction,
@@ -215,8 +216,11 @@ async def chat_completions(request: Request) -> Any:
 
     record.session_id = parsed.session_id
     record.target_model = parsed.model or settings.target_llm_model
+    inspectable = parsed.inspectable_text()
     record.payload_characteristics = PayloadCharacteristics.from_text(
-        parsed.inspectable_text(), include_content=settings.log_payloads
+        inspectable,
+        include_content=settings.log_payloads,
+        language=detect_language(inspectable).language,
     )
 
     if parsed.stream and not settings.allow_buffered_streaming:
