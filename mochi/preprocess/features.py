@@ -12,12 +12,21 @@ fiction - silently, with no test failing. That is the same train/serve
 constraint that ruled out POS/stopword removal in register item A2; only the
 feature has changed, not the reasoning.
 
-**Roughly half of these cost nothing.** The obfuscation family is a direct
-transcription of ``NormalizationResult.flags``, and the injection-lexicon family
-is a transcription of ``Stage1Result``. Both are already computed on every
-request and then discarded. Writing them to a dataset is bookkeeping, not new
-analysis - which is also why they are the families most likely to carry signal a
-TF-IDF model cannot see: they describe the *envelope* rather than the words.
+**The injection-lexicon family costs nothing.** It is a direct transcription of
+``Stage1Result``, already computed on every request and then discarded. Writing
+it to a dataset is bookkeeping, not new analysis.
+
+**The obfuscation family - what ``NormalizationResult.flags`` recorded having to
+be undone - is deliberately not a column here.** Revealing and decoding
+obfuscation is the normalization layer's job (Phase 3), and it has already run
+by the time any classifier sees the text: a base64-wrapped payload is decoded
+into a scannable variant, homoglyphs are folded, zero-width characters are
+stripped. What "was something obfuscated" would add on top of that is not a
+description of the prompt but a description of the preprocessing step - and it
+measured out negligible on this corpus in every case tried, because the corpora
+in hand carry very little obfuscation. The flags remain fully computed and
+exposed on ``NormalizationResult`` for telemetry and Stage I; they are simply
+never promoted to a feature column.
 
 Three deliberate limits:
 
@@ -53,7 +62,6 @@ import re
 from dataclasses import asdict, dataclass, field
 from urllib.parse import parse_qsl, urlsplit
 
-from mochi.preprocess.flags import NormalizationFlag as F
 from mochi.preprocess.normalize import NormalizationResult, dominant_script, normalize
 
 #: Detector ids from ``mochi/patterns.json``. Pinned here so the column set is
@@ -119,6 +127,38 @@ CHARS_PER_TOKEN = 4
 #: entropy is meaningless.
 MIN_ENTROPY_VALUE_CHARS = 12
 
+#: Fixed-point scale for every float field, applied only in ``as_dict()``.
+#: ``0.0342`` becomes ``342`` - four decimal digits of precision survive, far
+#: finer than any effect size this project has measured (the smallest reported
+#: in ``docs/CLASSIFICATION_PLAN.md`` is two decimal places). Every classical
+#: model in Track A is invariant to it: a decision tree's threshold splits do
+#: not care about a constant positive rescaling, and the SVM step in
+#: ``eval/baseline_models.py`` standardises its inputs anyway, which undoes any
+#: fixed multiplier exactly. The scale is named in the column, not left
+#: implicit - ``instruction_verb_ratio_x10k`` reads as "this is the ratio times
+#: 10,000", not as the ratio itself.
+RATIO_SCALE = 10_000
+
+#: Every ``float``-typed field on ``FeatureVector``. ``as_dict()`` scales and
+#: renames each of these with an ``_x10k`` suffix rather than emitting a float.
+#: ``tests/test_features.py`` asserts this list still matches every ``float``
+#: field on the dataclass, so a new float field added later cannot reach the
+#: materialised dataset unscaled without the test failing first.
+FLOAT_FIELDS: tuple[str, ...] = (
+    "avg_word_len",
+    "uppercase_ratio",
+    "digit_ratio",
+    "question_ratio",
+    "newline_ratio",
+    "special_char_ratio",
+    "instruction_verb_ratio",
+    "english_ratio",
+    "tagalog_ratio",
+    "max_url_query_entropy",
+    "first_hit_offset_ratio",
+    "payload_share",
+)
+
 
 @dataclass(frozen=True)
 class FeatureVector:
@@ -167,34 +207,6 @@ class FeatureVector:
     """Semicolon-joined, so the column survives a CSV round-trip."""
     detector_hits: dict[str, bool] = field(default_factory=dict)
 
-    # --- obfuscation, from Phase 3 normalization flags ----------------------
-    has_zero_width: bool = False
-    has_bidi: bool = False
-    homoglyphs_normalized: bool = False
-    is_mixed_script: bool = False
-    nfkc_applied: bool = False
-    excessive_special_chars: bool = False
-    base64_decoded: bool = False
-    hex_decoded: bool = False
-    rot13_decoded: bool = False
-    url_decoded: bool = False
-    html_stripped: bool = False
-    hidden_css_detected: bool = False
-    html_comment_extracted: bool = False
-    attribute_text_extracted: bool = False
-    file_metadata_extracted: bool = False
-    decode_depth_exceeded: bool = False
-    oversized_after_decode: bool = False
-    truncated_for_inspection: bool = False
-    n_flags: int = 0
-    n_variants_recovered: int = 0
-    decoded_char_gain: int = 0
-    """Characters recovered by decoding. Large positive values mean a payload
-    was hidden inside an encoding wrapper."""
-    normalization_delta: int = 0
-    """Characters removed or changed by normalization. Non-zero means the text
-    as sent differs from the text a detector reads."""
-
     # --- script and language (A14) ------------------------------------------
     dominant_script: str = ""
     detected_language: str = "unknown"
@@ -224,17 +236,125 @@ class FeatureVector:
     as sent, and ``none`` when nothing fired at all."""
 
     def as_dict(self) -> dict:
-        """Flatten to one row, expanding ``detector_hits`` into ``hit_*`` columns."""
+        """Flatten to one row of plain ints only - nothing else survives.
+
+        The dataclass itself stays human-readable: ``vector.payload_region ==
+        "head"`` and ``vector.ends_with_question is True`` keep working
+        everywhere a ``FeatureVector`` is used directly, tests included. Every
+        categorical and boolean field is expanded or cast here into an int, the
+        same way ``detector_hits`` (a dict) is expanded into ``hit_*`` columns -
+        so the materialised dataset and any consumer of ``.as_dict()`` never has
+        to special-case a string or a Python ``bool``.
+
+        Booleans matter here specifically because CSV has no boolean type:
+        ``pandas.to_csv`` writes a ``bool`` column as the literal text
+        ``True``/``False``, which is a string in the file regardless of the
+        in-memory dtype. Casting to ``0``/``1`` before the row is built means
+        the file on disk is what it claims to be.
+
+        * ``stage1_max_severity`` - ordinal int (none=0 < low=1 < medium=2 <
+          high=3). One-hot would discard the real ordering.
+        * ``dominant_script`` - ``is_latin_script`` boolean. Only Latin-vs-not
+          has ever been read; a script name has no natural numeric form.
+        * ``detected_language`` - one-hot ``lang_is_*`` over its four values.
+          No ordering exists between english/tagalog/mixed/unknown.
+        * ``payload_region`` - one-hot ``region_is_*`` over its five values,
+          same reasoning.
+        * ``stage1_detector_ids`` - dropped, not encoded. It is a
+          semicolon-joined string that duplicates the nine ``hit_*`` booleans
+          above exactly.
+        * Every ``FLOAT_FIELDS`` entry - fixed-point int, scaled by
+          ``RATIO_SCALE`` and suffixed ``_x10k`` (``instruction_verb_ratio``
+          becomes ``instruction_verb_ratio_x10k``).
+        * Every boolean, including the ``hit_*`` / ``is_latin_script`` /
+          ``lang_is_*`` / ``region_is_*`` columns produced by the encodings
+          above - cast to plain ``0``/``1`` as the final step, so nothing
+          upstream of it needs to already know this rule.
+        """
         row = asdict(self)
         hits = row.pop("detector_hits")
         for detector_id in DETECTOR_IDS:
             row[f"hit_{detector_id}"] = bool(hits.get(detector_id, False))
+
+        row.pop("stage1_detector_ids")
+
+        severity_rank = {"none": 0, "low": 1, "medium": 2, "high": 3}
+        row["stage1_max_severity"] = severity_rank.get(row.pop("stage1_max_severity"), 0)
+
+        row["is_latin_script"] = row.pop("dominant_script") == "latin"
+
+        language = row.pop("detected_language")
+        for name in ("english", "tagalog", "mixed", "unknown"):
+            row[f"lang_is_{name}"] = language == name
+
+        region = row.pop("payload_region")
+        for name in ("none", "head", "middle", "tail", "decoded_only"):
+            row[f"region_is_{name}"] = region == name
+
+        for name in FLOAT_FIELDS:
+            row[f"{name}_x10k"] = round(row.pop(name) * RATIO_SCALE)
+
+        for key, value in row.items():
+            if isinstance(value, bool):
+                row[key] = int(value)
+
         return row
 
 
 def feature_names() -> list[str]:
     """Column names in materialisation order."""
     return list(FeatureVector().as_dict().keys())
+
+
+#: The classification study's Step 1c frozen column set - what Track A (SVM,
+#: decision tree, random forest) actually trains on. Chosen from the Step 1b
+#: association pass over the full 46-column table (``eval/feature_stats.py``,
+#: ``docs/CLASSIFICATION_PLAN.md``), not from every column that measured a real
+#: effect: the injection-lexicon family (``stage1_*``, ``hit_*``) is excluded
+#: entirely by this list rather than run as an ablation, which is what settles
+#: the circularity concern raised for Step 2 - a model trained on this set
+#: cannot be rediscovering Stage I's own regexes, because none of Stage I's
+#: output is in its input. Likewise the URL/entity, position, and script
+#: families are excluded regardless of their individual effect sizes.
+#:
+#: ``is_code_switched`` is kept for construct validity on the A14 language
+#: dimension even though it measured not-significant on this corpus - the
+#: corpus's Taglish share is small, and the Step 5 Taglish evaluation set is
+#: where this column is expected to start doing work. ``question_mark_count``
+#: is kept alongside the stronger ``ends_with_question`` because A12 names
+#: question marks specifically; the two test the hypothesis at different
+#: grains rather than one making the other redundant.
+#:
+#: Every entry here is numeric or boolean already - ``engineered_transformer()``
+#: in ``eval/baseline_models.py`` needs no categorical encoding for this set,
+#: which the previous, larger column set did. ``instruction_verb_ratio`` and
+#: ``special_char_ratio`` are named with the ``_x10k`` suffix ``as_dict()``
+#: gives every float field - see ``FLOAT_FIELDS`` - since the two ratios in
+#: this frozen set are int columns in the materialised row, not floats.
+#:
+#: ``tests/test_features.py`` pins this list the same way ``DETECTOR_IDS`` is
+#: pinned: a name that no longer resolves on ``FeatureVector``'s ``as_dict()``
+#: output fails loudly, and changing the set at all requires touching this
+#: comment.
+TRACK_A_FEATURES: tuple[str, ...] = (
+    "char_count",
+    "word_count",
+    "is_code_switched",
+    "second_person_count",
+    "obligation_count",
+    "negation_count",
+    "imperative_verb_count",
+    "starts_with_imperative",
+    "instruction_verb_ratio_x10k",
+    "question_mark_count",
+    "ends_with_question",
+    "colon_count",
+    "quote_count",
+    "bracket_count",
+    "special_char_ratio_x10k",
+    "line_count",
+    "max_line_len",
+)
 
 
 # --- individual computations ------------------------------------------------
@@ -350,13 +470,13 @@ def extract(text: str, *, norm: NormalizationResult | None = None,
 
     Args:
         text: The raw text as received, *before* normalization. Surface and
-            punctuation features describe what was actually sent; the
-            obfuscation family describes what preprocessing had to undo. Passing
-            already-normalized text here would erase the difference between the
-            two, which is most of the signal.
+            punctuation features describe what was actually sent, and that is
+            only meaningful measured against the pre-normalization original.
         norm: Result of :func:`mochi.preprocess.normalize.normalize`. Computed
             here when omitted, but the pipeline already has one - pass it rather
-            than paying twice.
+            than paying twice. Used for the language columns and to hand Stage I
+            its scannable text; its ``flags`` are not otherwise read here - see
+            the module docstring on why the obfuscation family is not a column.
         stage1: A :class:`~mochi.detect.stage1_syntactic.Stage1Result`, or None.
             Typed loosely on purpose: importing the detector here would make the
             preprocessing package depend on the detection package, and the
@@ -365,7 +485,6 @@ def extract(text: str, *, norm: NormalizationResult | None = None,
     if norm is None:
         norm = normalize(text)
 
-    flags = set(norm.flags)
     length = len(text)
 
     words = _WORD.findall(text)
@@ -387,7 +506,7 @@ def extract(text: str, *, norm: NormalizationResult | None = None,
 
     url_count, has_image, has_auto_fetch, entropy = _url_features(text)
 
-    script, is_mixed = dominant_script(text)
+    script, _is_mixed = dominant_script(text)
 
     detector_hits: dict[str, bool] = {d: False for d in DETECTOR_IDS}
     stage1_hit_count = 0
@@ -407,8 +526,6 @@ def extract(text: str, *, norm: NormalizationResult | None = None,
         stage1_would_block = bool(getattr(stage1, "should_block", False))
 
     offset_ratio, payload_share, region = _position_features(text, stage1)
-
-    decoded_gain = sum(len(v) for v in norm.variants)
 
     return FeatureVector(
         char_count=length,
@@ -442,29 +559,6 @@ def extract(text: str, *, norm: NormalizationResult | None = None,
         stage1_would_block=stage1_would_block,
         stage1_detector_ids=";".join(sorted(set(detector_ids_seen))),
         detector_hits=detector_hits,
-
-        has_zero_width=F.ZERO_WIDTH_CHARS_DETECTED in flags,
-        has_bidi=F.BIDI_CONTROL_CHARS_DETECTED in flags,
-        homoglyphs_normalized=F.HOMOGLYPHS_NORMALIZED in flags,
-        is_mixed_script=is_mixed,
-        nfkc_applied=F.UNICODE_NFKC_APPLIED in flags,
-        excessive_special_chars=F.EXCESSIVE_SPECIAL_CHARACTERS in flags,
-        base64_decoded=F.BASE64_DECODED in flags,
-        hex_decoded=F.HEX_DECODED in flags,
-        rot13_decoded=F.ROT13_DECODED in flags,
-        url_decoded=F.URL_ENCODED_DECODED in flags,
-        html_stripped=F.HTML_STRIPPED in flags,
-        hidden_css_detected=F.HIDDEN_CSS_DETECTED in flags,
-        html_comment_extracted=F.HTML_COMMENT_EXTRACTED in flags,
-        attribute_text_extracted=F.ATTRIBUTE_TEXT_EXTRACTED in flags,
-        file_metadata_extracted=F.FILE_METADATA_EXTRACTED in flags,
-        decode_depth_exceeded=F.DECODE_DEPTH_EXCEEDED in flags,
-        oversized_after_decode=F.OVERSIZED_AFTER_DECODE in flags,
-        truncated_for_inspection=F.TRUNCATED_FOR_INSPECTION in flags,
-        n_flags=len(flags),
-        n_variants_recovered=len(norm.variants),
-        decoded_char_gain=decoded_gain,
-        normalization_delta=abs(len(norm.text) - length),
 
         dominant_script=script or "",
         detected_language=norm.language.language if norm.language else "unknown",

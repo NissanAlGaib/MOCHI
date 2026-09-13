@@ -1,13 +1,37 @@
-"""Materialise the Phase 6.5 feature table.
+"""Materialise the Track A feature table.
 
+    python eval/fit_malicious_word_weights.py     # run once first, see below
     python eval/build_features.py --data data/clean
     python eval/build_features.py --data data/clean --format csv --limit 5000
 
-Writes one row per sample to ``data/features/``, with every column defined by
-``mochi.preprocess.features``. This script computes **nothing** itself - it loads
-samples, calls the runtime extractor, and writes the result. That is the whole
-design: if a feature needs changing, it changes in one place and both the dataset
-and the gateway follow.
+Writes one row per sample to ``data/features/``: the identity/tracking columns
+below, ``mochi.preprocess.features.TRACK_A_FEATURES`` (17 columns, pure
+functions of the text), and ``eval.token_association.TRACK_A_FITTED_FEATURES``
+(1 column, ``malicious_word_weight_sum``) - 18 Track A columns total, split
+across two layers because they are two different kinds of thing. This script
+computes nothing about the *first* seventeen itself - it loads samples, calls
+the runtime extractor, and keeps only the columns Track A actually trains on.
+If the frozen set changes, it changes in ``TRACK_A_FEATURES`` and this script
+follows automatically.
+
+**The 18th column needs a prerequisite step.** ``malicious_word_weight_sum``
+is scored from a weight table fit once on the train split
+(``eval/fit_malicious_word_weights.py`` writes
+``data/features/instruction_verb_weights.json``) - fitting must happen before
+this script can read that file, and must never happen again inside this
+script, or the weights would silently be refit on data this script also treats
+as held-out test rows. This script only *applies* the already-fit weights,
+identically to every row regardless of split - see
+``eval.token_association.fit_instruction_verb_weights`` for why fitting lives
+outside ``mochi/preprocess/features.py`` entirely.
+
+**No Stage I scan runs here.** None of `TRACK_A_FEATURES` is Stage I-derived -
+that family was excluded from the frozen set specifically so a Track A model
+cannot be rediscovering Stage I's own regexes (see
+``docs/CLASSIFICATION_PLAN.md``'s Step 1c). ``extract()`` is called with
+``stage1=None`` accordingly, which is also most of why this script is fast:
+a per-row detector scan over ~83,000 rows is the expensive part it no longer
+pays for.
 
 **Split assignment mirrors ``training/finetune_e5.build_splits`` exactly**, using
 the same seed and the same rule (PromptShield's official splits are honoured;
@@ -29,6 +53,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import sys
 import time
 from pathlib import Path
@@ -37,59 +62,88 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from eval.data_loading import (  # noqa: E402
     DATA_DIR,
+    TEST_SHARE,
+    VALIDATION_SHARE,
     DatasetError,
     Sample,
     load_file,
     stratified_split,
 )
-from mochi.detect.stage1_syntactic import get_detector  # noqa: E402
+from eval.token_association import score_malicious_word_weight  # noqa: E402
 from mochi.preprocess import normalize  # noqa: E402
-from mochi.preprocess.features import extract, feature_names  # noqa: E402
+from mochi.preprocess.features import TRACK_A_FEATURES, extract  # noqa: E402
+
+INSTRUCTION_VERB_WEIGHTS_PATH = (
+    Path(__file__).resolve().parents[1] / "data" / "features"
+    / "instruction_verb_weights.json"
+)
 
 OUTPUT_DIR = Path(__file__).resolve().parents[1] / "data" / "features"
 
-#: Split names recognised as official when they suffix a filename.
-OFFICIAL_SPLITS = ("train", "validation", "test")
-
 
 def assign_splits(data_dir: Path) -> list[tuple[Sample, str]]:
-    """Pair every sample with its split, honouring official splits.
+    """Pair every sample with its split, pooling every source file first.
 
-    Mirrors ``training/finetune_e5.build_splits``. Keep the two in step - the
-    test suite fails if they diverge.
+    Mirrors ``training/finetune_e5.build_splits``. Keep the two in step -
+    ``tests/test_build_features.py`` fails if they diverge.
+
+    **PromptShield's own train/validation/test files are deliberately not
+    honoured.** They are 103,785 / 5,500 / 132,199 rows - a test set larger than
+    the train set, or roughly 45/2/51 once jayavibhav is folded in. No weighting
+    of those files produces the 70/30 the method calls for, so the only way to
+    get it is to pool all four and split from scratch. The cost is comparability
+    with numbers published against PromptShield's own test file, which this
+    thesis does not claim.
+
+    **Three tiers, from a double 70/30 split** (see ``TEST_SHARE`` /
+    ``VALIDATION_SHARE``): 30% of the corpus is sealed as test, and the
+    remaining 70% is split 70/30 again into train (49% of the corpus) and
+    validation (21%). Ten-fold cross-validation then runs *inside* the train
+    tier for hyperparameter selection, and the validation tier is reserved for
+    decisions the folds cannot make - the decision threshold above all.
+
+    An earlier revision returned train and test only, on the reasoning that
+    k-fold makes a validation tier redundant. It does for hyperparameters; it
+    does not for the threshold, which has to be chosen on rows the *final*
+    fitted model never saw. Both tracks now take the identical three-way split,
+    so a row is in the same tier for Track A and Track B alike.
     """
-    tagged: list[tuple[Sample, str]] = []
     pooled: list[Sample] = []
-
     for path in sorted(data_dir.glob("*.csv")):
-        samples = load_file(path)
-        official = next(
-            (name for name in OFFICIAL_SPLITS if path.stem.endswith(f"_{name}")), None
-        )
-        if official:
-            tagged.extend((sample, official) for sample in samples)
-        else:
-            pooled.extend(samples)
+        pooled.extend(load_file(path))
 
-    if pooled:
-        extra_train, extra_validation, extra_test = stratified_split(pooled)
-        for split, group in (("train", extra_train),
-                             ("validation", extra_validation),
-                             ("test", extra_test)):
-            tagged.extend((sample, split) for sample in group)
+    train, validation, test = stratified_split(
+        pooled, test=TEST_SHARE, validation=VALIDATION_SHARE)
 
+    tagged: list[tuple[Sample, str]] = []
+    for split, group in (("train", train), ("validation", validation),
+                         ("test", test)):
+        tagged.extend((sample, split) for sample in group)
     return tagged
 
 
-def build_rows(tagged: list[tuple[Sample, str]], *, progress_every: int = 5_000):
-    """Extract features for every sample, yielding flat row dicts."""
-    detector = get_detector()
+def build_rows(tagged: list[tuple[Sample, str]], *, weights: dict[str, float],
+               progress_every: int = 5_000):
+    """Extract features for every sample, yielding flat row dicts.
+
+    ``TRACK_A_FEATURES`` is kept from the extractor's output - the frozen
+    Step 1c column set, not every column ``FeatureVector`` can compute. Filter
+    happens here, after calling the one real ``extract()``, rather than by
+    asking the extractor to compute less: the extractor stays the single place
+    a feature is defined, and this script stays the place that decides which of
+    its outputs get written down.
+
+    ``malicious_word_weight_sum`` is computed separately, via
+    ``score_malicious_word_weight`` and the already-fit ``weights`` table
+    (never refit here) - it is not a ``FeatureVector`` output at all, so it
+    cannot come from the same ``full[name]`` lookup as the other 17.
+    """
     started = time.perf_counter()
 
     for index, (sample, split) in enumerate(tagged, start=1):
         result = normalize(sample.text)
-        stage1 = detector.scan(result.scannable, result.flags)
-        vector = extract(sample.text, norm=result, stage1=stage1)
+        vector = extract(sample.text, norm=result)
+        full = vector.as_dict()
 
         row = {
             "text_hash": hashlib.sha256(sample.text.encode("utf-8")).hexdigest()[:16],
@@ -98,7 +152,10 @@ def build_rows(tagged: list[tuple[Sample, str]], *, progress_every: int = 5_000)
             "source_tag": sample.source_tag,
             "label": sample.label,
         }
-        row.update(vector.as_dict())
+        row.update({name: full[name] for name in TRACK_A_FEATURES})
+        row["malicious_word_weight_sum"] = score_malicious_word_weight(
+            sample.text, weights
+        )
         yield row
 
         if progress_every and index % progress_every == 0:
@@ -120,12 +177,14 @@ def summarise(frame) -> None:
     print(counts.to_string().replace("\n", "\n    ").rjust(4))
     print()
 
-    # The length confound. Median tokens run 16 to 106 across sources, so a
+    # The length confound. Median length varies widely across sources, so a
     # length feature can look predictive for reasons unrelated to injection.
+    # char_count, not est_token_count - the latter was dropped in Step 1c as a
+    # deterministic derivative (char_count // 4) and is no longer materialised.
     print("  Length by dataset (the confound to rule out before trusting it)")
-    by_dataset = frame.groupby("dataset")["est_token_count"].median()
+    by_dataset = frame.groupby("dataset")["char_count"].median()
     for name, value in by_dataset.items():
-        print(f"    {name:<28}{value:>8,.0f} median tokens")
+        print(f"    {name:<28}{value:>8,.0f} median chars")
     print()
 
     # A column that never varies is not a measurement. In a dataframe it looks
@@ -143,8 +202,10 @@ def summarise(frame) -> None:
     print()
 
     # The A12 hypothesis, previewed. Not a test - just the first look.
-    for column in ("question_ratio", "ends_with_question", "imperative_verb_count",
-                   "starts_with_imperative", "n_flags"):
+    # question_ratio was not kept in TRACK_A_FEATURES (Step 1c); ends_with_question
+    # is the column that actually carries the signal, per the Step 1b findings.
+    for column in ("question_mark_count", "ends_with_question", "imperative_verb_count",
+                   "starts_with_imperative", "negation_count"):
         if column not in frame.columns:
             continue
         benign = frame.loc[frame["label"] == 0, column].mean()
@@ -164,6 +225,9 @@ def main() -> int:
     parser.add_argument("--format", choices=("parquet", "csv"), default="parquet")
     parser.add_argument("--limit", type=int, default=None,
                         help="cap rows, for a fast smoke run")
+    parser.add_argument("--weights", type=Path, default=INSTRUCTION_VERB_WEIGHTS_PATH,
+                        help="instruction-verb weight table from "
+                             "eval/fit_malicious_word_weights.py")
     args = parser.parse_args()
 
     try:
@@ -175,6 +239,14 @@ def main() -> int:
     if not args.data.exists():
         print(f"ERROR: {args.data} not found. Run eval/clean_datasets.py first.")
         return 1
+
+    if not args.weights.exists():
+        print(f"ERROR: {args.weights} not found.\n"
+              f"Run eval/fit_malicious_word_weights.py first - "
+              f"malicious_word_weight_sum needs a weight table fit on the "
+              f"train split before this script can apply it.")
+        return 1
+    weights = json.loads(args.weights.read_text(encoding="utf-8"))["weights"]
 
     try:
         tagged = assign_splits(args.data)
@@ -195,9 +267,10 @@ def main() -> int:
 
         tagged = random.Random(42).sample(tagged, args.limit)
 
-    print(f"\n  Extracting {len(tagged):,} rows x {len(feature_names()) + 5} columns ...")
+    print(f"\n  Extracting {len(tagged):,} rows x "
+          f"{len(TRACK_A_FEATURES) + 1 + 5} columns ...")
     started = time.perf_counter()
-    frame = pd.DataFrame(list(build_rows(tagged)))
+    frame = pd.DataFrame(list(build_rows(tagged, weights=weights)))
     elapsed = time.perf_counter() - started
     print(f"  Done in {elapsed:,.1f}s ({len(tagged) / elapsed:,.0f} rows/s)")
 

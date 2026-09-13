@@ -35,6 +35,26 @@ class NormalizationFlag(StrEnum):
     #: Code-switching is recorded; foreignness is not.
     CODE_SWITCHED_DETECTED = "code_switched_detected"
 
+    #: A Tagalog word was machine-translated to English by
+    #: :mod:`mochi.preprocess.code_switch` (opt-in, ``MOCHI_ENABLE_TAGALOG_TRANSLATION``).
+    #: Records that a translation happened; carries no verdict about the word.
+    TAGALOG_WORD_TRANSLATED = "tagalog_word_translated"
+
+    #: A word matching neither the English nor the Tagalog classifier was
+    #: removed from the code-switch filter's translated variant.
+    #:
+    #: This is the same bias risk the ``NON_ENGLISH_DETECTED`` decision above
+    #: already named, one step further: the per-word classifier is a curated
+    #: lexicon plus morphology (see ``classify_word_language`` in
+    #: ``normalize.py``), not an exhaustive dictionary of either language, so
+    #: this flag fires on genuine third-language words *and* on ordinary
+    #: English/Tagalog words the lexicon simply does not cover - it cannot
+    #: distinguish the two. For that reason this flag must never be added as a
+    #: Track A engineered feature or otherwise used as evidence of
+    #: maliciousness; it is an artifact of classifier coverage, not a property
+    #: of the request.
+    NON_ENGLISH_TAGALOG_WORD_STRIPPED = "non_english_tagalog_word_stripped"
+
     # --- Encoding wrappers ---
     BASE64_DECODED = "base64_decoded"
     HEX_DECODED = "hex_decoded"

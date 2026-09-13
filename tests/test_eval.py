@@ -144,19 +144,49 @@ def test_describe_warns_on_imbalance() -> None:
     assert "WARNING" in describe(skewed)
 
 
-def test_stratified_split_preserves_balance_and_is_seeded() -> None:
-    samples = [Sample(text=f"b{i}", label=0, dataset="d") for i in range(100)]
-    samples += [Sample(text=f"m{i}", label=1, dataset="d") for i in range(100)]
+def _balanced_samples(n: int = 100) -> list[Sample]:
+    samples = [Sample(text=f"b{i}", label=0, dataset="d") for i in range(n)]
+    samples += [Sample(text=f"m{i}", label=1, dataset="d") for i in range(n)]
+    return samples
 
-    train, val, evaluation = stratified_split(samples, train=0.6, validation=0.1)
 
-    assert len(train) == 120 and len(val) == 20 and len(evaluation) == 60
-    for part in (train, val, evaluation):
+def test_stratified_split_is_70_30_balanced_and_seeded() -> None:
+    samples = _balanced_samples()
+
+    train, val, test = stratified_split(samples)
+
+    assert len(train) == 140 and len(val) == 0 and len(test) == 60
+    for part in (train, test):
         malicious = sum(s.label for s in part)
         assert malicious == len(part) // 2  # balance preserved
 
-    again = stratified_split(samples, train=0.6, validation=0.1)
+    again = stratified_split(samples)
     assert [s.text for s in again[0]] == [s.text for s in train]  # reproducible
+
+
+def test_validation_is_carved_from_train_not_from_test() -> None:
+    """The property the two-track comparison depends on.
+
+    Track A asks for no validation tier and Track B asks for one. If requesting
+    validation moved the test boundary, the two tracks would be scored on
+    different rows and the comparison table would be meaningless.
+    """
+    samples = _balanced_samples()
+
+    no_val_train, no_val, no_val_test = stratified_split(samples)
+    with_val_train, with_val, with_val_test = stratified_split(samples, validation=0.1)
+
+    # The held-out 30% is byte-identical in both configurations.
+    assert sorted(s.text for s in no_val_test) == sorted(s.text for s in with_val_test)
+    assert len(no_val_test) == len(with_val_test) == 60
+
+    # Validation came out of the training portion, which shrank by exactly that much.
+    assert len(no_val) == 0
+    assert len(with_val) == 14  # 10% of the 140-row training portion
+    assert len(with_val_train) == len(no_val_train) - len(with_val)
+
+    # And nothing in validation leaked into the test set.
+    assert not {s.text for s in with_val} & {s.text for s in with_val_test}
 
 
 # --- metrics ---------------------------------------------------------------

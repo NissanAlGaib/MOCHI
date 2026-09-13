@@ -50,34 +50,38 @@ class Split:
 
 def build_splits(data_dir: Path, *, limit: int | None = None
                  ) -> tuple[Split, Split, Split]:
-    """Assemble train/validation/test, honouring PromptShield's own splits."""
-    from eval.data_loading import load_file, stratified_split
+    """Assemble train/validation/test from one pooled 70/30 stratified split.
 
-    official: dict[str, Split] = {"train": Split(), "validation": Split(),
-                                  "test": Split()}
-    other = []
+    Mirrors ``eval/build_features.assign_splits``; see its docstring for why
+    PromptShield's own split files are not honoured.
 
+    The validation set is carved out of the **training** portion, never out of
+    the 30%. The classical track asks for no validation tier at all, and both
+    tracks must still be scored on the same rows - so the test set is cut first
+    and is unaffected by the value passed here.
+    """
+    from eval.data_loading import (
+        TEST_SHARE,
+        VALIDATION_SHARE,
+        load_file,
+        stratified_split,
+    )
+
+    pooled = []
     for path in sorted(data_dir.glob("*.csv")):
-        stem = path.stem
-        samples = load_file(path)
-        matched = next(
-            (name for name in official if stem.endswith(f"_{name}")), None
-        )
-        if matched:
-            official[matched].texts.extend(s.text for s in samples)
-            official[matched].labels.extend(s.label for s in samples)
-        else:
-            other.extend(samples)
+        pooled.extend(load_file(path))
 
-    if other:
-        extra_train, extra_val, extra_test = stratified_split(other)
-        for split, extra in (("train", extra_train), ("validation", extra_val),
-                             ("test", extra_test)):
-            official[split].texts.extend(s.text for s in extra)
-            official[split].labels.extend(s.label for s in extra)
+    #: The thesis protocol's double 70/30 - see eval.data_loading's
+    #: TEST_SHARE / VALIDATION_SHARE. 30% of the 70% is 21% of the corpus, and
+    #: the training tier is 49%, not 70%: the second cut comes out of the
+    #: first cut's remainder.
+    train_s, val_s, test_s = stratified_split(
+        pooled, test=TEST_SHARE, validation=VALIDATION_SHARE)
 
-    train, validation, test = (official["train"], official["validation"],
-                               official["test"])
+    train, validation, test = Split(), Split(), Split()
+    for split, group in ((train, train_s), (validation, val_s), (test, test_s)):
+        split.texts.extend(s.text for s in group)
+        split.labels.extend(s.label for s in group)
     if limit:
         for split in (train, validation, test):
             del split.texts[limit:]
@@ -90,13 +94,23 @@ def build_splits(data_dir: Path, *, limit: int | None = None
     return train, validation, test
 
 
-def encode(texts: list[str], tokenizer, max_length: int):
+def encode(texts: list[str], tokenizer, max_length: int, *,
+           padding: str = "longest"):
+    """Tokenise a batch, padded to its own longest row by default.
+
+    ``padding="longest"`` rather than ``"max_length"``: prompts in this corpus
+    tokenise to a median of ~88 tokens and 96.6% fall under 512, so padding
+    every batch to a fixed 512 spends roughly 5.8x the necessary compute - and
+    attention is quadratic in sequence length, so the waste is worse than that
+    ratio suggests. The model sees identical tokens either way; only the
+    padding differs, and padding is masked out of both attention and the pool.
+    """
     # E5 was pretrained with "query: " / "passage: " prefixes and degrades
     # without one. Inspected content is the thing being classified, so it is a
     # passage.
     return tokenizer(
         [f"passage: {t}" for t in texts],
-        padding="max_length",
+        padding=padding,
         truncation=True,
         max_length=max_length,
         return_tensors="pt",
@@ -148,7 +162,16 @@ def main() -> int:
     parser.add_argument("--data", type=Path, default=REPO / "data" / "clean")
     parser.add_argument("--out", type=Path, default=REPO / "models" / "e5-fine-tuned")
     parser.add_argument("--epochs", type=int, default=3)
-    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--batch-size", type=int, default=8,
+                        help="rows per forward pass. 8 fits an 8 GB card at "
+                             "512 tokens; raise it on a larger GPU")
+    parser.add_argument("--accumulate", type=int, default=4,
+                        help="optimizer steps every N batches. batch-size x "
+                             "accumulate is the effective batch (default 32)")
+    parser.add_argument("--precision", choices=("bf16", "fp16", "fp32"),
+                        default="bf16",
+                        help="bf16 needs Ampere or newer and needs no loss "
+                             "scaling; fp32 is the fallback for older cards")
     parser.add_argument("--lr", type=float, default=2e-5)
     parser.add_argument("--max-length", type=int, default=512)
     parser.add_argument("--limit", type=int, default=None,
@@ -183,10 +206,30 @@ def main() -> int:
     model = InjectionClassifier(DEFAULT_ENCODER).to(device)
 
     def loader(split: Split, *, shuffle: bool) -> "DataLoader":
-        batch = encode(split.texts, tokenizer, args.max_length)
-        dataset = TensorDataset(batch["input_ids"], batch["attention_mask"],
-                                torch.tensor(split.labels))
-        return DataLoader(dataset, batch_size=args.batch_size, shuffle=shuffle)
+        """Tokenise inside ``collate_fn``, so padding is per batch.
+
+        Encoding the whole split up front would pad every row to the split's
+        longest - which is the 512 cap - and throw away the point of
+        ``padding="longest"``. Doing it per batch is what makes a batch of
+        short prompts actually run short.
+        """
+        from torch.utils.data import Dataset
+
+        class TextDataset(Dataset):
+            def __len__(self):
+                return len(split.texts)
+
+            def __getitem__(self, index):
+                return split.texts[index], split.labels[index]
+
+        def collate(rows):
+            encoded = encode([text for text, _ in rows], tokenizer,
+                             args.max_length)
+            return (encoded["input_ids"], encoded["attention_mask"],
+                    torch.tensor([label for _, label in rows]))
+
+        return DataLoader(TextDataset(), batch_size=args.batch_size,
+                          shuffle=shuffle, collate_fn=collate)
 
     train_loader = loader(train, shuffle=True)
     validation_loader = loader(validation, shuffle=False)
@@ -195,6 +238,24 @@ def main() -> int:
     criterion = torch.nn.BCEWithLogitsLoss()
     history = []
     best_f1 = -1.0
+
+    # Mixed precision is not an optimisation here, it is what makes the model
+    # fit. multilingual-e5-small carries a 250k x 384 embedding matrix (~118M
+    # parameters), so AdamW's state alone is ~1.9 GB in fp32 - and the
+    # attention matrices at batch x heads x tokens^2 are what actually exhaust
+    # an 8 GB card. Halving activation width, and taking the optimizer step
+    # only every ``accumulate`` batches, keeps the effective batch at 32 while
+    # never holding more than ``batch_size`` rows of activations at once.
+    use_amp = args.precision != "fp32" and device == "cuda"
+    amp_dtype = torch.bfloat16 if args.precision == "bf16" else torch.float16
+    # bf16 has fp32's exponent range, so gradients cannot underflow and no
+    # scaler is needed. fp16 can underflow, and silently trains to nothing
+    # without one.
+    scaler = torch.amp.GradScaler("cuda",
+                                  enabled=use_amp and args.precision == "fp16")
+    if use_amp:
+        print(f"  mixed precision: {args.precision}, "
+              f"effective batch {args.batch_size * args.accumulate}")
 
     for epoch in range(1, args.epochs + 1):
         model.train()
@@ -205,16 +266,28 @@ def main() -> int:
             attention_mask = attention_mask.to(device)
             labels = labels.to(device).float()
 
-            logits, _ = model(input_ids=input_ids, attention_mask=attention_mask)
-            loss = criterion(logits.squeeze(-1), labels)
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+            with torch.autocast("cuda", dtype=amp_dtype, enabled=use_amp):
+                logits, _ = model(input_ids=input_ids,
+                                  attention_mask=attention_mask)
+                loss = criterion(logits.squeeze(-1), labels)
+
+            # Divided so the accumulated gradient matches what one batch of
+            # batch_size x accumulate would have produced - without this the
+            # effective learning rate silently scales with ``accumulate``.
+            scaler.scale(loss / args.accumulate).backward()
+
+            if step % args.accumulate == 0 or step == len(train_loader):
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad(set_to_none=True)
 
             running += loss.item()
             if step % 100 == 0:
+                # flush=True: stdout is block-buffered when redirected to a
+                # file, so without it a multi-hour run looks hung from outside
+                # - nothing reaches the log until the buffer fills.
                 print(f"  epoch {epoch} step {step}/{len(train_loader)} "
-                      f"loss {running / step:.4f}")
+                      f"loss {running / step:.4f}", flush=True)
 
         metrics = evaluate(model, validation_loader, device, torch)
         metrics.update(epoch=epoch, train_loss=running / max(len(train_loader), 1),

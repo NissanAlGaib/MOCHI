@@ -32,6 +32,27 @@ pytest-html>=4.1.0         # standalone HTML report for the thesis appendix
 # Stage II specifically avoids (see training/model.py). The encoder is loaded
 # through transformers directly so the pooling layer is ours.
 
+# Tagalog content filter (mochi/preprocess/code_switch.py).
+#
+# Deliberately NOT installed by default, same reasoning as Stage II above: off
+# unless MOCHI_ENABLE_TAGALOG_TRANSLATION=true, and argostranslate declares
+# stanza as a hard dependency, which pulls in torch (~2.5 GB) regardless of
+# whether Stage II is also enabled. Every code path in code_switch.py is
+# tested through a stubbed translator. Install when enabling this filter:
+#
+#   pip install argostranslate wordfreq
+#
+# argostranslate>=1.11.0    # tl<->en translation - the only maintained library with this pair
+# wordfreq>=3.1.0           # no torch; resolves words the curated lexicon in
+#                           # normalize.py cannot place on its own (see the
+#                           # code_switch.py module docstring for the false-
+#                           # strip bug this specifically fixes)
+#
+# After installing argostranslate, download the tl<->en package once:
+#   python -c "import argostranslate.package as p; p.update_package_index(); \
+#       pkg = next(x for x in p.get_available_packages() if x.from_code=='tl' and x.to_code=='en'); \
+#       p.install_from_path(pkg.download())"
+
 # Added in later phases (kept commented so the install stays light):
 # openai>=1.50.0             # Phase 9 - Stage III arbiter
 # scikit-learn>=1.5.0        # Phase 5/13 - evaluation metrics

@@ -22,6 +22,7 @@ from mochi.detect.stage2_semantic import (
     Stage2Detector,
     Stage2Result,
 )
+from mochi.preprocess.code_switch import CodeSwitchTranslator
 from mochi.session import RiskAccumulator, RiskUpdate, turn_risk
 from mochi.telemetry import TelemetryRecord, stage_timer
 
@@ -174,6 +175,8 @@ def inspect(request, record: TelemetryRecord, *,
             enable_stage1: bool = True,
             enable_stage2: bool = False,
             stage2: Stage2Detector | None = None,
+            enable_tagalog_translation: bool = False,
+            code_switch: CodeSwitchTranslator | None = None,
             accumulator: RiskAccumulator | None = None) -> InspectionResult:
     """Segment, preprocess, and run the detection cascade.
 
@@ -182,11 +185,32 @@ def inspect(request, record: TelemetryRecord, *,
     model; ``mochi/gateway/app.py`` builds the detector once at startup when
     ``MOCHI_ENABLE_STAGE2`` is set.
 
+    The Tagalog content filter is opt-in the same way and for the same reason -
+    its translation library also pulls in torch (see
+    ``mochi/preprocess/code_switch.py``) - built the same way, and needs the
+    same kind of instance passed in.
+
     Phase 9 extends this in place, adding Stage III arbitration of the uncertain
     band. Enforcement lives in :mod:`mochi.mitigate`, not here - detection
     decides *what* a request is, mitigation decides what to do about it.
     """
     segments = build_segments(request)
+
+    # --- Tagalog content filter (opt-in) ---
+    # Runs before Stage I, not after: Segment.scannable reads
+    # segment.normalized.variants live, so appending the filtered text here
+    # means Stage I's scan a few lines down sees it automatically, the same
+    # way it already sees every decoded-encoding variant from Phase 3. The
+    # untouched original is never replaced - see the code_switch module
+    # docstring on why this is an added variant, not a rewrite of the request.
+    if enable_tagalog_translation and code_switch is not None:
+        for segment in segments:
+            cs_result = code_switch.filter_and_translate(segment.normalized.text)
+            if cs_result.text and cs_result.text not in segment.normalized.variants:
+                segment.normalized.variants.append(cs_result.text)
+            for flag in cs_result.flags:
+                if flag not in segment.normalized.flags:
+                    segment.normalized.flags.append(flag)
 
     aggregated_flags: list[str] = []
     for segment in segments:

@@ -159,15 +159,69 @@ already says it is not language identification — this is the thing it isn't.
 **Scope is English–Tagalog only**, per adviser. Do not generalise to "any
 language pair" — the eval set that would justify the wider claim does not exist.
 
-**Not adopted: translating to English before prediction.** It adds a network or
-model call inside the latency budget, and it is an injection surface in its own
-right — a translator can drop or introduce instructions, and the detector would
-then be judging text no attacker ever sent. The encoder is already
-`intfloat/multilingual-e5-small`, so the model layer needs no translation step.
-Language ID is recorded as a *signal*, not used as a rewrite.
+**Not adopted, originally: translating to English before prediction.** It adds
+a network or model call inside the latency budget, and it is an injection
+surface in its own right — a translator can drop or introduce instructions, and
+the detector would then be judging text no attacker ever sent. The encoder is
+already `intfloat/multilingual-e5-small`, so the model layer needs no
+translation step. Language ID is recorded as a *signal*, not used as a rewrite.
 
 **Definition of done:** a Taglish injection raises `CODE_SWITCHED_DETECTED`; an
 all-English prompt and an all-Tagalog prompt both do not.
+
+### Amendment — runtime translation reversed by explicit instruction
+
+**The decision above is reversed for the live request path**, on explicit
+instruction rather than because the original objections stopped applying —
+both are still true and are recorded here rather than quietly dropped:
+
+1. **The latency and dependency cost is real, not theoretical.** The only
+   maintained `tl<->en` library, Argos Translate, declares `stanza` as a hard
+   dependency, which requires `torch`. Enabling this feature costs the same
+   ~2.5 GB Stage II already costs, on every request that goes through it.
+2. **The translator remains an injection surface.** A mistranslation can drop
+   or invent words; this is why `mochi/preprocess/code_switch.py` attaches its
+   output as an *additional scannable variant*, never as a replacement of the
+   text forwarded upstream — the original request the caller sent is what
+   reaches the target LLM, unchanged, regardless of what this filter decides.
+   Only what a detector sees is affected.
+
+What changed the calculus: the new requirement is not "translate so the model
+scores better" (which `multilingual-e5-small` already does not need) but "only
+English and Tagalog content may reach detection, and Tagalog must be
+translated for detectors that are English-only" — a content-filtering
+requirement, not a modelling one, and one the encoder's own multilingual
+support does not satisfy.
+
+**Two further problems surfaced during implementation, both fixed and both
+recorded** so a future change to the underlying lexicons does not
+silently reintroduce them:
+
+- The per-word classifier this filter first tried, `classify_word_language` in
+  `normalize.py`, was built for `detect_language`'s aggregate ratio estimate,
+  where an unattributed word only lowers confidence. Used to gate every single
+  word for keep-or-strip, it classified ordinary words like "hello" and "now"
+  as unrecognised (would have been stripped as foreign) while nonsense
+  containing a non-Tagalog letter read as English (kept). Fixed by adding
+  `wordfreq` — a frequency dictionary with no torch dependency of its own — as
+  a second opinion for exactly the words the curated cascade cannot place.
+  `mochi/preprocess/code_switch.py`'s module docstring has the full account,
+  including the residual gap this still does not close.
+- Stripping a word left doubled whitespace where it used to sit; fixed by a
+  single whitespace-collapse pass on the rebuilt text.
+
+Gated behind `MOCHI_ENABLE_TAGALOG_TRANSLATION`, off by default, mirroring
+`MOCHI_ENABLE_STAGE2` exactly — same reasoning, same shape: a Stage-I-only
+deployment must not pay for a dependency it never asked for.
+
+**New offline tool, not part of the runtime path:**
+`eval/generate_taglish_candidates.py` machine-translates a random subset of
+each prompt's English *content* words into Tagalog (Argos Translate's
+`en -> tl` direction) to generate **candidates** for the Step 5 Taglish
+evaluation set — not the set itself. Native-speaker validation, already a
+requirement on record for that set, is unchanged and non-optional: a machine
+translation can be grammatically wrong in ways this project has no way to
+detect on its own.
 
 ---
 
@@ -281,6 +335,66 @@ on every request and has never been written to a dataset, and it describes the
 *envelope* rather than the words — which is exactly the signal a TF-IDF model
 structurally cannot see. If any family earns its place in the hybrid ablation,
 it is most likely this one.
+
+### Amendment — obfuscation dropped from the dataset (classification study)
+
+**Not adopted, on reflection.** The paragraph above treated the obfuscation
+family as the most promising column set; both the reasoning and the measurement
+turned out not to support that.
+
+Revealing obfuscation is Phase 3's job, and it has already run by the time a
+classifier — Track A or Track B — sees anything: a base64 payload is decoded
+into a scannable variant, homoglyphs are folded, zero-width characters are
+stripped, before extraction even starts. A column meaning "was something
+obfuscated" describes what the *preprocessing step* had to undo, not a property
+of the prompt. That is a fine thing for telemetry and for Stage I, which is
+exactly why `NormalizationResult.flags` still carries it — it is the wrong thing
+for a feature meant to describe the text a classifier is judging.
+
+The measurement then confirmed it: every column in this family came back
+negligible in the Step 1b association pass (`eval/feature_stats.py`), because
+the corpora in hand carry very little obfuscation. Keeping a family that is both
+conceptually the wrong kind of feature and empirically dead in this corpus had
+nothing left recommending it.
+
+**Removed from `mochi/preprocess/features.py`:** `has_zero_width`, `has_bidi`,
+`homoglyphs_normalized`, `is_mixed_script` (formerly `mixed_script`),
+`nfkc_applied`, `excessive_special_chars`, `base64_decoded`, `hex_decoded`,
+`rot13_decoded`, `url_decoded`, `html_stripped`, `hidden_css_detected`,
+`html_comment_extracted`, `attribute_text_extracted`, `file_metadata_extracted`,
+`decode_depth_exceeded`, `oversized_after_decode`, `truncated_for_inspection`,
+`n_flags`, `n_variants_recovered`, `decoded_char_gain`, `normalization_delta` —
+22 columns. `tests/test_features.py` pins the absence the same way
+`DETECTOR_IDS` pins a column set that must exist.
+
+Nothing about Phase 3 itself changes. Normalization still decodes, folds, and
+strips before any detector — including Stage I — ever runs; this amendment only
+concerns what gets promoted to a Track A dataset column.
+
+### Amendment — the materialised dataset carries no floats
+
+A second amendment, made after the classification study's Step 1c froze
+`TRACK_A_FEATURES`: `FeatureVector.as_dict()` — the method both the CSV writer
+and `engineered_transformer()` read — now emits only `int` and `bool` values.
+No column in the materialised dataset is a floating-point number.
+
+The twelve genuinely continuous columns (`avg_word_len`, `uppercase_ratio`,
+`digit_ratio`, `question_ratio`, `newline_ratio`, `special_char_ratio`,
+`instruction_verb_ratio`, `english_ratio`, `tagalog_ratio`,
+`max_url_query_entropy`, `first_hit_offset_ratio`, `payload_share`) are scaled
+by `RATIO_SCALE = 10_000` and rounded to the nearest int, with the column
+renamed to carry an `_x10k` suffix so the scale is legible from the name
+(`instruction_verb_ratio` → `instruction_verb_ratio_x10k`). This is exact
+enough that no Track A model's output changes: tree splits are invariant to a
+positive rescaling, the SVM step standardises its inputs anyway, and four
+decimal digits of surviving precision is finer than any effect size reported
+in `docs/CLASSIFICATION_PLAN.md`.
+
+The dataclass fields themselves are untouched — `vector.instruction_verb_ratio`
+is still a plain Python `float`, and every test that reads a `FeatureVector`
+object directly is unaffected. Only `.as_dict()`, the flattening step, encodes
+it. Full rationale in `docs/CLASSIFICATION_PLAN.md`'s "materialised row is
+int/bool only" amendment.
 
 ### Four ways this goes wrong
 

@@ -413,6 +413,50 @@ class LanguageProfile:
     genuinely interleaved Taglish (many), which the ratios alone cannot."""
 
 
+def classify_word_language(word: str) -> str:
+    """Which language one lowercase token belongs to.
+
+    Extracted from :func:`detect_language`'s classification cascade so it can
+    be shared with :mod:`mochi.preprocess.code_switch`, which needs a per-word
+    answer rather than an aggregate ratio. The cascade itself is unchanged -
+    same order, same tests, same precedence - only pulled out from the loop
+    that used to be its only caller, so the two callers cannot silently drift
+    into classifying the same word two different ways.
+
+    Returns one of six categories, most reliable test first:
+
+    * ``"ambiguous"`` - spelled identically in both languages; attributed to
+      neither (see :data:`AMBIGUOUS_FUNCTION_WORDS`).
+    * ``"tagalog_frame"`` - a Tagalog function word; the grammatical frame a
+      Taglish sentence is built on.
+    * ``"taglish_verb"`` - a Tagalog affix bolted onto an English stem
+      (``i-reset``); the one construction that is unambiguously both at once.
+    * ``"english"`` - an English function word, a curated content word, or an
+      unattributed token that reads as English by orthography.
+    * ``"tagalog"`` - a Tagalog content word, by lexicon or morphology.
+    * ``"unknown"`` - matched none of the above. Not attributed to either
+      language - this is the coverage gap the module docstring's Q1 note is
+      about, and it is exactly the category a per-word content filter has to
+      treat with the most caution, since it cannot tell "genuinely a third
+      language" from "a real English or Tagalog word outside these lexicons".
+    """
+    if word in AMBIGUOUS_FUNCTION_WORDS:
+        return "ambiguous"
+    if word in TAGALOG_FUNCTION_WORDS:
+        return "tagalog_frame"
+    if word in ENGLISH_FUNCTION_WORDS:
+        return "english"
+    if TAGLISH_VERB.match(word):
+        return "taglish_verb"
+    if word in ENGLISH_CONTENT_WORDS:
+        return "english"
+    if word in TAGALOG_BARE_WORDS or _looks_tagalog(word):
+        return "tagalog"
+    if _is_english_token(word):
+        return "english"
+    return "unknown"
+
+
 def detect_language(text: str) -> LanguageProfile:
     """Identify English/Tagalog composition and whether the text code-switches.
 
@@ -439,16 +483,12 @@ def detect_language(text: str) -> LanguageProfile:
     sequence: list[str] = []
 
     for word in words:
-        if word in AMBIGUOUS_FUNCTION_WORDS:
-            continue
-        if word in TAGALOG_FUNCTION_WORDS:
+        category = classify_word_language(word)
+        if category == "tagalog_frame":
             tagalog += 1
             frame += 1
             sequence.append("tl")
-        elif word in ENGLISH_FUNCTION_WORDS:
-            english += 1
-            sequence.append("en")
-        elif TAGLISH_VERB.match(word):
+        elif category == "taglish_verb":
             # The switch happens inside the word, so it counts for both sides
             # and for the frame. Attributing it to either language alone would
             # misrepresent the one construction that is unambiguously mixed.
@@ -457,15 +497,13 @@ def detect_language(text: str) -> LanguageProfile:
             english += 1
             frame += 1
             sequence.append("en")
-        elif word in ENGLISH_CONTENT_WORDS:
+        elif category == "english":
             english += 1
             sequence.append("en")
-        elif word in TAGALOG_BARE_WORDS or _looks_tagalog(word):
+        elif category == "tagalog":
             tagalog += 1
             sequence.append("tl")
-        elif _is_english_token(word):
-            english += 1
-            sequence.append("en")
+        # "ambiguous" and "unknown" are not attributed to either language.
 
     attributed = tagalog + english
     if not attributed:

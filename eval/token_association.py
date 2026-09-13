@@ -54,6 +54,115 @@ from eval.data_loading import DATA_DIR, DatasetError, load_directory  # noqa: E4
 
 TOKEN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
+#: Synonyms folded to one canonical token before association testing, opt-in
+#: via ``tokenize(..., fold_synonyms=True)``.
+#:
+#: Two things already cover verb synonymy elsewhere in this project, and this
+#: dict is deliberately *not* a third, redundant copy of either:
+#:
+#: * ``patterns.json``'s Stage I regexes already alternate over close synonyms
+#:   directly - ``\b(?:print|reveal|show|display|output|repeat)\s+...`` - so a
+#:   canonicalisation pass would mostly just re-derive what detection-time
+#:   matching already does.
+#: * ``mochi.preprocess.features.INSTRUCTION_VERBS`` counts any of its 34 verbs
+#:   equally toward ``imperative_verb_count`` - the feature does not care
+#:   *which* synonym appeared, only that one did, so folding would not change
+#:   that count either.
+#:
+#: What neither of those does is what this project's own A9/A10 corpus-bias
+#: work (``docs/BUILD_PLAN.md``) already found unigrams do badly: without
+#: folding, "ignore", "disregard", and "forget" each collect their own,
+#: individually noisier evidence and their own individually-corrected q-value,
+#: fragmenting one concept's support across three rows of the results table.
+#: Folding pools that evidence into one canonical token before the contingency
+#: table is built, the same reasoning ``tokenize``'s own n-gram mode already
+#: applies to *phrase* fragmentation, applied here to *lexical* fragmentation
+#: instead.
+#:
+#: Every canonical form (the dict's values) is a member of ``INSTRUCTION_VERBS``
+#: - ``tests/test_token_association.py`` pins this, so the two vocabularies
+#: cannot silently diverge. Only close synonyms of that existing, already-
+#: adopted list are added here; common, low-specificity verbs
+#: ("show", "tell", "run", "send") are deliberately excluded even where a
+#: near-synonym relationship exists, because folding a word that carries almost
+#: no signal on its own into one that does would manufacture significance
+#: rather than reveal it.
+SYNONYM_TO_BASE: dict[str, str] = {
+    # ignore - "disregard" and "forget" are themselves existing
+    # INSTRUCTION_VERBS members, not new additions: they are the exact
+    # motivating example above, folded here rather than left to fragment
+    # their own evidence the way the module docstring on tokenize() describes.
+    "disregard": "ignore", "forget": "ignore",
+    "discard": "ignore", "dismiss": "ignore", "neglect": "ignore",
+    "overlook": "ignore", "abandon": "ignore",
+    # reveal - "disclose" is likewise an existing INSTRUCTION_VERBS member
+    # folded here as a near-perfect synonym; "show"/"print"/"output"/"repeat"/
+    # "echo"/"dump" are left independent even though related, because each
+    # carries a distinct connotation (rendering vs restating vs bulk export)
+    # that patterns.json's own separate alternations already treat differently.
+    "disclose": "reveal",
+    "expose": "reveal", "divulge": "reveal", "uncover": "reveal",
+    "leak": "reveal", "unveil": "reveal",
+    # bypass - "override" is left independent: patterns.json's own regexes
+    # show it targeting a different object ("override ... instruction") than
+    # bypass/disable ("bypass ... filter/restriction"), so treating them as
+    # one concept would blur a distinction the detector itself preserves.
+    "circumvent": "bypass", "evade": "bypass", "sidestep": "bypass",
+    "subvert": "bypass", "workaround": "bypass",
+    # delete - "remove" is left independent: too common and low-specificity
+    # in ordinary text on its own to fold safely (the same reasoning that
+    # excludes "show"/"tell"/"run").
+    "erase": "delete", "wipe": "delete", "purge": "delete",
+    # disable
+    "deactivate": "disable", "unplug": "disable",
+    # pretend
+    "impersonate": "pretend", "masquerade": "pretend", "imitate": "pretend",
+    # execute - "run" is left independent for the same common-word reason as
+    # "remove" above.
+    "invoke": "execute", "trigger": "execute", "launch": "execute",
+    # obey - "comply" is an existing INSTRUCTION_VERBS member, folded for the
+    # same reason as "disregard"/"forget"/"disclose" above. "follow" is left
+    # independent: too common and low-specificity on its own to fold safely.
+    "comply": "obey", "adhere": "obey", "conform": "obey",
+}
+
+#: Words that turn a bare instruction verb into an actual instruction-
+#: manipulation phrase, rather than an ordinary use of the same verb. "ignore"
+#: alone appears in narrative prose all the time ("she decided to ignore the
+#: previous warnings about the cursed necklace") - a bare-word weight cannot
+#: tell that apart from "ignore all previous instructions", and 234 benign
+#: training rows containing the word "ignore" prove it is a real, not
+#: theoretical, false-positive source.
+#:
+#: This is the same distinction ``patterns.json``'s own regexes already
+#: enforce with wildcards - ``\bignore\s+(?:all\s+)?(?:the\s+)?(?:previous|...)
+#: \s+(?:instruction|rule|...)`` - generalised into one shared word list rather
+#: than re-derived per verb family. Drawn directly from the object-noun and
+#: qualifier alternations already used across ``patterns.json``'s direct/
+#: indirect-injection and jailbreak detectors, so this does not invent a new
+#: notion of "instruction-like" - it reuses the one Stage I already encodes.
+INSTRUCTION_CONTEXT_WORDS: frozenset[str] = frozenset({
+    # the object being targeted
+    "instruction", "instructions", "direction", "directions", "directive",
+    "directives", "command", "commands", "prompt", "prompts", "rule", "rules",
+    "guideline", "guidelines", "restriction", "restrictions", "policy",
+    "policies", "filter", "filters", "constraint", "constraints", "setting",
+    "settings", "safety", "protocol", "protocols", "system", "training",
+    "programming", "message", "guardrail", "guardrails",
+    # which one - "previous"/"prior" alone carry most of the signal even when
+    # the object noun itself sits outside the window ("ignore what I told you
+    # before" has no object noun at all, but "before" still marks the phrase)
+    "previous", "prior", "above", "earlier", "preceding", "foregoing",
+    "original", "initial", "before",
+})
+
+#: Words checked on either side of a candidate verb. 5 covers "ignore all of
+#: the previous instructions" (verb to object noun across three intervening
+#: words) without growing wide enough to catch an unrelated mention two
+#: sentences away - the regex patterns this generalises stay within a
+#: similarly short span themselves.
+INSTRUCTION_CONTEXT_WINDOW = 5
+
 #: Tokens rarer than this are dropped before testing. Rare tokens give unstable
 #: odds ratios and inflate the multiple-comparison burden without contributing
 #: usable evidence.
@@ -85,11 +194,14 @@ class TokenResult:
         return "malicious" if self.log_odds > 0 else "benign"
 
 
-def tokenize(text: str, *, ngram_max: int = 1) -> set[str]:
+def tokenize(text: str, *, ngram_max: int = 1,
+             fold_synonyms: bool = False) -> set[str]:
     """Presence set of n-grams, not counts - the table is about occurrence.
 
-    ``ngram_max=1`` reproduces the original unigram behaviour exactly, so any
-    figure already cited from a previous run stays reproducible.
+    ``ngram_max=1, fold_synonyms=False`` reproduces the original unigram
+    behaviour exactly, so any figure already cited from a previous run stays
+    reproducible - folding is opt-in specifically so it never silently changes
+    a number someone already quoted.
 
     Unigrams alone mislead here, and the existing results show how. Four of the
     strongest associations - ``instructions`` (V=0.291), ``reveal`` (0.259),
@@ -98,8 +210,17 @@ def tokenize(text: str, *, ngram_max: int = 1) -> set[str]:
     "ignore previous instructions" from "ignore the previous email": the
     distinction lives entirely in the adjacency, which is exactly what Stage I
     hand-codes as ``ignore ... previous <instruction|rule|...>``.
+
+    ``fold_synonyms`` addresses the same fragmentation from the other side:
+    not a phrase split into unigrams, but one concept split across near-
+    synonymous unigrams ("ignore" / "disregard" / "forget"). Applied to words
+    before n-grams are built, so a folded word inside a multi-word gram is
+    canonicalised too, e.g. ``ngram_max=2`` sees "ignore previous" from either
+    "ignore previous" or "disregard previous" alike. See :data:`SYNONYM_TO_BASE`.
     """
     words = [match.group(0).lower() for match in TOKEN.finditer(text)]
+    if fold_synonyms:
+        words = [SYNONYM_TO_BASE.get(word, word) for word in words]
     if ngram_max <= 1:
         return set(words)
 
@@ -108,6 +229,43 @@ def tokenize(text: str, *, ngram_max: int = 1) -> set[str]:
         for start in range(len(words) - size + 1):
             grams.add(" ".join(words[start:start + size]))
     return grams
+
+
+def instruction_verbs_in_context(text: str) -> set[str]:
+    """Canonical instruction verbs that appear near an instruction-object word.
+
+    Distinct from ``tokenize(text, fold_synonyms=True)`` in exactly one way -
+    the one that matters here: a bare verb no longer counts on its own.
+    "ignore" in "she decided to ignore the previous warnings" and "ignore" in
+    "ignore all previous instructions" are the same token to ``tokenize()``,
+    but only the second is what :data:`SYNONYM_TO_BASE` and
+    ``INSTRUCTION_VERBS`` exist to catch - see :data:`INSTRUCTION_CONTEXT_WORDS`.
+
+    This is a **proximity window, not an n-gram**. An n-gram needs the verb and
+    its object adjacent ("ignore previous"), which "ignore *the* previous"
+    already breaks; a window catches both without needing ``ngram_max`` pushed
+    high enough to absorb every stopword variant Stage I's own regexes
+    already tolerate with a wildcard.
+
+    Used identically by :func:`fit_instruction_verb_weights` (via ``analyse``'s
+    ``token_fn``) and :func:`score_malicious_word_weight`, so a verb's fit
+    weight and its applied weight are always measured under the same rule.
+    """
+    from mochi.preprocess.features import INSTRUCTION_VERBS
+
+    words = [match.group(0).lower() for match in TOKEN.finditer(text)]
+    canonical = [SYNONYM_TO_BASE.get(word, word) for word in words]
+
+    found: set[str] = set()
+    for i, word in enumerate(canonical):
+        if word not in INSTRUCTION_VERBS or word in found:
+            continue
+        lo = max(0, i - INSTRUCTION_CONTEXT_WINDOW)
+        hi = min(len(words), i + INSTRUCTION_CONTEXT_WINDOW + 1)
+        window = words[lo:i] + words[i + 1:hi]
+        if any(w in INSTRUCTION_CONTEXT_WORDS for w in window):
+            found.add(word)
+    return found
 
 
 def contingency(a: int, b: int, c: int, d: int):
@@ -165,13 +323,38 @@ def benjamini_hochberg(p_values: list[float]) -> list[float]:
 
 
 def analyse(samples, *, min_freq: int = MIN_DOC_FREQ,
-            ngram_max: int = 1) -> tuple[list[TokenResult], dict]:
+            ngram_max: int = 1, fold_synonyms: bool = False,
+            vocabulary: set[str] | None = None,
+            token_fn=None,
+            ) -> tuple[list[TokenResult], dict]:
+    """Test every token (or only ``vocabulary``, if given) against the label.
+
+    ``vocabulary`` restricts *which hypotheses are tested at all* - not a
+    post-hoc filter applied to a full run. That distinction matters for
+    Benjamini-Hochberg: it corrects across whatever ``results`` ends up
+    holding, so testing the full ~10,000-token corpus and filtering the
+    output down to a handful of words of interest afterward would correct
+    across all 10,000 hypotheses and understate how significant those few
+    words actually are. Passing a small ``vocabulary`` up front corrects only
+    across that vocabulary instead - see
+    :func:`fit_instruction_verb_weights`, the caller this exists for.
+
+    ``token_fn``, when given, replaces the ``tokenize(text, ngram_max=...,
+    fold_synonyms=...)`` call entirely - it takes the raw text and returns
+    whatever set of tokens should be counted as present, e.g.
+    :func:`instruction_verbs_in_context`. ``ngram_max``/``fold_synonyms`` are
+    ignored when ``token_fn`` is supplied, since the replacement function
+    decides tokenisation on its own terms.
+    """
     malicious_docs = benign_docs = 0
     malicious_count: Counter = Counter()
     benign_count: Counter = Counter()
 
     for sample in samples:
-        tokens = tokenize(sample.text, ngram_max=ngram_max)
+        tokens = (token_fn(sample.text) if token_fn is not None else
+                 tokenize(sample.text, ngram_max=ngram_max, fold_synonyms=fold_synonyms))
+        if vocabulary is not None:
+            tokens &= vocabulary
         if sample.label == 1:
             malicious_docs += 1
             malicious_count.update(tokens)
@@ -179,13 +362,16 @@ def analyse(samples, *, min_freq: int = MIN_DOC_FREQ,
             benign_docs += 1
             benign_count.update(tokens)
 
-    vocabulary = [
-        token for token in set(malicious_count) | set(benign_count)
+    candidates = vocabulary if vocabulary is not None else (
+        set(malicious_count) | set(benign_count)
+    )
+    vocabulary_tested = [
+        token for token in candidates
         if malicious_count[token] + benign_count[token] >= min_freq
     ]
 
     results: list[TokenResult] = []
-    for token in vocabulary:
+    for token in vocabulary_tested:
         a = malicious_count[token]
         b = benign_count[token]
         c = malicious_docs - a
@@ -204,14 +390,172 @@ def analyse(samples, *, min_freq: int = MIN_DOC_FREQ,
         "n_samples": malicious_docs + benign_docs,
         "n_malicious": malicious_docs,
         "n_benign": benign_docs,
-        "vocabulary_tested": len(vocabulary),
+        "vocabulary_tested": len(vocabulary_tested),
         "min_doc_freq": min_freq,
         "ngram_max": ngram_max,
+        "fold_synonyms": fold_synonyms,
         "significant_at_fdr": sum(1 for r in results if r.q_value < FDR),
         "fdr": FDR,
         "fisher_substitutions": sum(1 for r in results if r.test == "fisher"),
     }
     return results, meta
+
+
+#: Every significant verb's weight is linearly rescaled to fall in
+#: ``[WEIGHT_MIN, WEIGHT_MAX]`` - a small, directly-readable severity score,
+#: not a fixed-point stand-in for the underlying log-odds the way
+#: ``mochi.preprocess.features.RATIO_SCALE`` is for a 0-1 fraction. A verb with
+#: no measured malicious association still gets ``0``, outside this range on
+#: purpose - "no evidence" and "the weakest evidence we found" are different
+#: claims, and only the second should read as ``WEIGHT_MIN``.
+#:
+#: **This scale is relative to whichever verbs are currently significant, not
+#: an absolute unit.** Rescaling depends on the current min and max log-odds
+#: across the significant verbs, so refitting on an updated corpus - a
+#: different verb becoming the strongest, or the weakest dropping out - shifts
+#: what every other weight means, not just the one that changed. Accepted
+#: trade-off for a score simple enough to read at a glance; not a property to
+#: rely on across two different fits of this table.
+WEIGHT_MIN = 1
+WEIGHT_MAX = 10
+
+
+def fit_instruction_verb_weights(train_samples, *, min_freq: int = 5,
+                                 ) -> tuple[dict[str, int], list[TokenResult]]:
+    """Corpus-measured weight for each canonical instruction verb.
+
+    **``train_samples`` must already be the train split, and nothing else.**
+    This function does not check that itself - it has no way to, since a list
+    of ``Sample`` carries no split information - so the caller is the only
+    thing standing between this and leakage. It exists specifically because
+    ``mochi/preprocess/features.py``'s own docstring rules this kind of value
+    out of ``FeatureVector``: "nothing here is fitted on the corpus... putting
+    [a corpus-fitted feature] here would make [fitting on train only]
+    impossible to enforce - the extractor has no idea which split it is
+    looking at." A weight derived from log-odds is exactly the corpus-fitted
+    feature that warning describes, so it is fit here, once, by a caller that
+    *does* know which split it is looking at, and then applied - never
+    refit - to every row a later step scores.
+
+    Counted via :func:`instruction_verbs_in_context`, not a bare
+    ``tokenize(..., fold_synonyms=True)`` presence check: a verb only counts as
+    "present" when an instruction-object word sits within
+    :data:`INSTRUCTION_CONTEXT_WINDOW` words of it. Without that, "ignore"
+    counts identically in "ignore all previous instructions" and in "she
+    decided to ignore the previous warnings" - 234 benign training rows
+    contain the bare word for exactly that reason. Folding still applies
+    inside that function, so a synonym's evidence (``disregard``, ``expose``,
+    ``comply``, ...) pools into its canonical verb's weight the same as
+    before - only the presence *test* changed, not the vocabulary.
+
+    Vocabulary is additionally restricted to
+    :data:`mochi.preprocess.features.INSTRUCTION_VERBS` (belt and braces -
+    ``instruction_verbs_in_context`` only ever returns members of that set
+    already, but restricting explicitly here is what keeps the Benjamini-
+    Hochberg correction honest regardless - see :func:`analyse`).
+
+    A verb's weight is *only* nonzero if that verb is significantly malicious-
+    associated (``log_odds > 0`` and ``q_value < FDR``); otherwise its weight
+    is ``0``. A verb present in a prompt with no measured malicious
+    association contributes nothing to the sum a weight feeds - "present but
+    unproven" is not the same claim as "present and evidenced", and only the
+    second should move a score.
+
+    Every significant verb's raw log-odds is then linearly rescaled into
+    ``[WEIGHT_MIN, WEIGHT_MAX]`` - the weakest significant verb becomes
+    ``WEIGHT_MIN``, the strongest becomes ``WEIGHT_MAX``, everything else maps
+    proportionally between. Rescaling (not just rounding) happens here, once,
+    at fit time - see :data:`WEIGHT_MAX` for what that trades away - so every
+    later consumer of this weight table sums plain, small ints and never has
+    to know a raw log-odds value or a scale factor exists.
+    """
+    from mochi.preprocess.features import INSTRUCTION_VERBS
+
+    results, _meta = analyse(train_samples, min_freq=min_freq,
+                             token_fn=instruction_verbs_in_context,
+                             vocabulary=set(INSTRUCTION_VERBS))
+
+    significant = {
+        result.token: result.log_odds for result in results
+        if result.log_odds > 0 and result.q_value < FDR
+    }
+
+    weights: dict[str, int] = {}
+    if significant:
+        lo_min, lo_max = min(significant.values()), max(significant.values())
+        span = lo_max - lo_min
+        for verb, log_odds in significant.items():
+            if span == 0:
+                # Every significant verb tied exactly - nothing distinguishes
+                # "strongest" from "weakest" here, so none of them earns more
+                # than the floor of the significant range.
+                weights[verb] = WEIGHT_MIN
+            else:
+                fraction = (log_odds - lo_min) / span
+                weights[verb] = round(WEIGHT_MIN + fraction * (WEIGHT_MAX - WEIGHT_MIN))
+
+    # A verb too rare to test at all, or not significant, still gets an
+    # explicit 0 rather than being silently absent - a scoring function doing
+    # weights.get(word, 0) would behave the same either way, but an explicit
+    # entry is reviewable in the written-out file and an accidental absence
+    # is not.
+    for verb in INSTRUCTION_VERBS:
+        weights.setdefault(verb, 0)
+
+    return weights, results
+
+
+#: The Track A columns that need a corpus-fitted weight table as an extra
+#: input, on top of the text. Deliberately **not** added to
+#: ``mochi.preprocess.features.TRACK_A_FEATURES`` - every entry in that tuple
+#: is a pure function of one text, by that module's own explicit rule
+#: ("nothing here is fitted on the corpus"), and a weight from
+#: ``fit_instruction_verb_weights`` is exactly the corpus-fitted value that
+#: rule exists to keep out.
+#:
+#: The full Track A input a model actually trains on is
+#: ``mochi.preprocess.features.TRACK_A_FEATURES + TRACK_A_FITTED_FEATURES``
+#: (17 + 1 = 18 columns) - two lists in two layers, not one list pretending
+#: both kinds of column are the same kind of thing. ``eval/build_features.py``
+#: and ``eval/baseline_models.py``'s ``engineered_transformer()`` are the two
+#: places that actually join them.
+#:
+#: No ``_x100``/``_x10k``-style suffix, unlike ``mochi.preprocess.features``'s
+#: scaled float fields: this value is not a fixed-point stand-in you would
+#: ever divide back down to recover a "real" number - the 1-10 rescale in
+#: :func:`fit_instruction_verb_weights` produces the final severity score
+#: directly, so the materialised column already holds exactly what it means.
+TRACK_A_FITTED_FEATURES: tuple[str, ...] = (
+    "malicious_word_weight_sum",
+)
+
+
+def score_malicious_word_weight(text: str, weights: dict[str, int]) -> int:
+    """Sum of fit weights for every canonical instruction verb found in ``text``.
+
+    Applies weights already fit by :func:`fit_instruction_verb_weights` - this
+    function fits nothing itself and is safe to call on train or test rows
+    alike, which is the entire point: the leakage rule is about *fitting*, not
+    about *applying*, and a fixed lookup applied identically to every row
+    leaks nothing back about which split a row belongs to.
+
+    A **plain sum of small ints**, deliberately: each weight is already
+    rescaled into ``[WEIGHT_MIN, WEIGHT_MAX]`` at fit time, not scaled here.
+    Doing the rescale once at fit time, rather than combining raw log-odds
+    floats here and rescaling the total, means no caller of this function -
+    not ``eval/build_features.py``, not ``engineered_transformer()`` - needs
+    to know the rescale exists at all; the weight table is already in its
+    final, materialisable form the moment it is fit.
+
+    Counts presence via :func:`instruction_verbs_in_context` - the same
+    proximity-window rule the weights were fit under - not a bare
+    ``tokenize(..., fold_synonyms=True)`` presence check. Scoring "ignore" by
+    bare presence when its weight was fit by windowed presence would apply a
+    number to a claim ("this verb is being used to manipulate instructions")
+    the text was never actually checked for.
+    """
+    verbs = instruction_verbs_in_context(text)
+    return sum(weights.get(verb, 0) for verb in verbs)
 
 
 def ablation(samples, *, min_freq: int, sizes=(1, 2, 3)) -> None:
@@ -287,6 +631,9 @@ def report(results: list[TokenResult], meta: dict, *, top: int) -> None:
     print(f"  tokens tested (doc freq >= {meta['min_doc_freq']}): "
           f"{meta['vocabulary_tested']:,}"
           f"    Fisher substitutions: {meta['fisher_substitutions']:,}")
+    if meta.get("fold_synonyms"):
+        print(f"  synonyms folded to canonical form: "
+              f"{len(SYNONYM_TO_BASE)} mappings (see SYNONYM_TO_BASE)")
     print(f"  significant after Benjamini-Hochberg at FDR {meta['fdr']}: "
           f"{meta['significant_at_fdr']:,} "
           f"({meta['significant_at_fdr'] / max(meta['vocabulary_tested'], 1):.1%})")
@@ -326,6 +673,11 @@ def main() -> int:
                              "the original unigram report exactly")
     parser.add_argument("--ablation", action="store_true",
                         help="compare 1 / 1-2 / 1-3 instead of a single report")
+    parser.add_argument("--fold-synonyms", action="store_true",
+                        help="pool close synonyms (disregard/forget -> ignore) "
+                             "into one canonical token before testing; off by "
+                             "default so existing cited figures stay reproducible "
+                             "- see SYNONYM_TO_BASE")
     parser.add_argument("--json", type=Path, default=None)
     args = parser.parse_args()
 
@@ -340,7 +692,8 @@ def main() -> int:
         return 0
 
     results, meta = analyse(samples, min_freq=args.min_freq,
-                            ngram_max=args.ngram_max)
+                            ngram_max=args.ngram_max,
+                            fold_synonyms=args.fold_synonyms)
     report(results, meta, top=args.top)
 
     if args.json:

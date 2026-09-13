@@ -37,6 +37,7 @@ class Settings:
     enable_stage1: bool
     enable_stage2: bool
     stage2_model_dir: str
+    enable_tagalog_translation: bool
     block_severity: str
     sanitize_untrusted: bool
     resolve_band_by_trust: bool
@@ -96,6 +97,11 @@ def get_settings() -> Settings:
         # than silently degrading to Stage I only.
         enable_stage2=_get_bool("MOCHI_ENABLE_STAGE2", False),
         stage2_model_dir=os.getenv("MOCHI_STAGE2_MODEL_DIR", "").strip(),
+        # Tagalog content filter defaults off for the same reason Stage II
+        # does: its translation library (argostranslate) needs stanza, which
+        # needs torch, and the gateway must start without either. See
+        # mochi/preprocess/code_switch.py.
+        enable_tagalog_translation=_get_bool("MOCHI_ENABLE_TAGALOG_TRANSLATION", False),
         block_severity=os.getenv("MOCHI_BLOCK_SEVERITY", "high").strip().lower(),
         # Redact injections found in untrusted content rather than rejecting the
         # whole request. Off means blunter behaviour: any detection blocks.

@@ -77,9 +77,20 @@ async def lifespan(app: FastAPI):
         logger.info("Stage II enabled - model=%s",
                     settings.stage2_model_dir or "models/e5-fine-tuned")
 
+    # Same eager-load, fail-fast reasoning as Stage II above: a deployer who
+    # turned this on should get a clear error at startup, not a gateway that
+    # quietly ran with no Tagalog translation while believing otherwise.
+    app.state.code_switch = None
+    if settings.enable_tagalog_translation:
+        from mochi.preprocess.code_switch import CodeSwitchTranslator
+
+        app.state.code_switch = CodeSwitchTranslator()
+        app.state.code_switch.translate_word("salamat")  # surface load errors now
+        logger.info("Tagalog content filter enabled")
+
     logger.info(
         "MOCHI %s ready - provider=%s default_model=%s log=%s payloads=%s "
-        "stage1=%s stage2=%s",
+        "stage1=%s stage2=%s tagalog_translation=%s",
         __version__,
         settings.target_llm_provider,
         settings.target_llm_model,
@@ -87,6 +98,7 @@ async def lifespan(app: FastAPI):
         settings.log_payloads,
         settings.enable_stage1,
         settings.enable_stage2,
+        settings.enable_tagalog_translation,
     )
     try:
         yield
@@ -156,6 +168,9 @@ async def inspect_request(payload: ChatCompletionRequest,
     """
     settings = get_settings()
     stage2 = getattr(app_state, "stage2", None) if app_state is not None else None
+    code_switch = (
+        getattr(app_state, "code_switch", None) if app_state is not None else None
+    )
     accumulator = (
         getattr(app_state, "accumulator", None) if app_state is not None else None
     )
@@ -166,6 +181,10 @@ async def inspect_request(payload: ChatCompletionRequest,
         enable_stage1=settings.enable_stage1,
         enable_stage2=settings.enable_stage2 and stage2 is not None,
         stage2=stage2,
+        enable_tagalog_translation=(
+            settings.enable_tagalog_translation and code_switch is not None
+        ),
+        code_switch=code_switch,
         accumulator=accumulator,
     )
 

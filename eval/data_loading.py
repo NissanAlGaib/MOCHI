@@ -292,17 +292,57 @@ def describe(samples: Iterable[Sample]) -> str:
     return "\n".join(lines)
 
 
+#: The thesis protocol: a **double 70/30 split**, then 10-fold cross-validation
+#: inside whatever remains for training.
+#:
+#:     corpus ──70/30──> development (70%) | test (30%, sealed)
+#:     development ──70/30──> train (49% of corpus) | validation (21%)
+#:     train ──10-fold CV──> hyperparameter selection
+#:
+#: Both shares are 0.3 and mean different things, which is the one confusing
+#: part: ``TEST_SHARE`` is a share of the whole corpus, ``VALIDATION_SHARE`` is a
+#: share of *what is left after* the test cut. They are separate constants rather
+#: than one 0.3 so that changing one never silently moves the other.
+#:
+#: Defined here, imported by both split builders
+#: (``eval.build_features.assign_splits`` and
+#: ``training.finetune_e5.build_splits``), so the two cannot drift apart - the
+#: property ``tests/test_build_features.py`` exists to defend.
+TEST_SHARE = 0.3
+VALIDATION_SHARE = 0.3
+
+#: Folds for hyperparameter selection inside the training split. Ten rather than
+#: five: the models here fit in seconds (the RBF SVM excepted), so the cheaper
+#: variance of more folds is affordable.
+CV_FOLDS = 10
+
+
 def stratified_split(
     samples: Sequence[Sample],
     *,
-    train: float = 0.6,
-    validation: float = 0.1,
+    test: float = 0.3,
+    validation: float = 0.0,
     seed: int = 42,
 ) -> tuple[list[Sample], list[Sample], list[Sample]]:
-    """Split into train/validation/evaluation, preserving class balance.
+    """Split into train/validation/test, preserving class balance.
 
     Mirrors the thesis Data Splits table. Seeded so runs are reproducible - a
     requirement of the Reliability section.
+
+    **The test set is carved first and is independent of ``validation``.** That
+    is the property the two-track comparison rests on: the classical track calls
+    this with no validation tier and the NLP track calls it with one, and both
+    must still be scored on the *same rows* or the comparison is between two
+    different exams. Validation is therefore taken out of the training portion,
+    never out of the 30%.
+
+    Args:
+        test: Share of the corpus held out for final scoring. Never trained on,
+            never tuned against, identical across both tracks.
+        validation: Share **of the remaining training portion** to reserve for
+            early stopping. ``0.0`` (the default) returns an empty validation
+            list, which is what a model needing no early stopping should ask
+            for. ``0.1`` here means 10% of the 70%, not 10% of the corpus.
     """
     import random
 
@@ -313,18 +353,16 @@ def stratified_split(
     rng.shuffle(malicious)
 
     def cut(items: list[Sample]) -> tuple[list[Sample], list[Sample], list[Sample]]:
-        n_train = int(len(items) * train)
-        n_val = int(len(items) * validation)
-        return (
-            items[:n_train],
-            items[n_train:n_train + n_val],
-            items[n_train + n_val:],
-        )
+        n_test = int(len(items) * test)
+        held_out = items[:n_test]
+        remaining = items[n_test:]
+        n_val = int(len(remaining) * validation)
+        return remaining[n_val:], remaining[:n_val], held_out
 
-    b_train, b_val, b_eval = cut(benign)
-    m_train, m_val, m_eval = cut(malicious)
+    b_train, b_val, b_test = cut(benign)
+    m_train, m_val, m_test = cut(malicious)
 
-    out = ([*b_train, *m_train], [*b_val, *m_val], [*b_eval, *m_eval])
+    out = ([*b_train, *m_train], [*b_val, *m_val], [*b_test, *m_test])
     for part in out:
         rng.shuffle(part)
     return out
