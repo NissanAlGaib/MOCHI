@@ -12,6 +12,8 @@ deployer actually sees.
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 from mochi.detect import inspect
@@ -199,16 +201,52 @@ def test_all_english_text_needs_no_translation_and_loads_no_heavy_model():
     assert not loaded
 
 
-def test_translator_unavailable_without_argostranslate():
-    """Pins the message a deployer actually sees when the dependency is missing.
+def test_translator_unavailable_without_argostranslate(monkeypatch):
+    """Pins the message a deployer sees when the dependency is missing.
 
-    argostranslate is not installed in this project's default environment by
-    design (see the module docstring) - this test intentionally exercises the
-    real, unstubbed _load() path.
+    Absence is **simulated**, not assumed. An earlier version of this test just
+    called the real ``_load()`` and relied on argostranslate not being installed
+    in the default environment - so it started failing the moment the dependency
+    was installed to build the lexicon, which is a property of the machine
+    rather than of the code.
+
+    The lexicon is emptied first because ``translate_word`` consults it before
+    the neural path: with a cached entry present the fallback is never reached
+    and the error this test exists to pin cannot be raised.
     """
+    monkeypatch.setitem(sys.modules, "argostranslate", None)
+
     translator = CodeSwitchTranslator()
+    translator._lexicon = {}
+
     with pytest.raises(TranslatorUnavailable, match="pip install argostranslate"):
         translator.translate_word("salamat")
+
+
+def test_cached_lexicon_answers_without_loading_the_neural_model(monkeypatch):
+    """The property that makes translation affordable in the request path.
+
+    A word the lexicon covers must never reach ``_load()`` - that call pulls
+    argostranslate, stanza and torch and costs tens of milliseconds, which is
+    the exact objection the A14 amendment raised against translating inline.
+    """
+    monkeypatch.setitem(sys.modules, "argostranslate", None)
+
+    translator = CodeSwitchTranslator()
+    translator._lexicon = {"balewalain": "ignore"}
+
+    assert translator.translate_word("balewalain") == "ignore"
+
+
+def test_affixed_form_resolves_through_its_root():
+    """Tagalog is agglutinative, so a surface-form table would need every
+    inflection enumerated. The root lookup is what avoids that.
+    """
+    translator = CodeSwitchTranslator()
+    translator._lexicon = {"balewala": "ignore"}
+
+    assert translator.lexicon_lookup("magbalewala") == "ignore"
+    assert translator.lexicon_lookup("wholly-unrelated") is None
 
 
 # --- wired into the pipeline ----------------------------------------------------

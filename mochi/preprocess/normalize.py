@@ -343,6 +343,25 @@ MIN_WORDS_FOR_LANGUAGE = 5
 #: considered present.
 TAGALOG_FRAME_RATIO = 0.15
 
+#: The same bar for an English frame, used by the English-framed code-switching
+#: test ("please ignore the naunang tagubilin"). Function words are a closed
+#: class in both languages, so the two frames are measured on the same scale.
+ENGLISH_FRAME_RATIO = 0.15
+
+#: Share of tokens that must be Tagalog *content* words before an
+#: English-framed sentence counts as code-switched. Lower than the frame
+#: ratios on purpose: content words are open-class and sparse, so demanding
+#: 15% of them would only ever fire on a near-translated sentence.
+TAGALOG_CONTENT_RATIO = 0.10
+
+#: How many Tagalog content words the English-framed test needs, regardless of
+#: ratio. A ratio alone is not enough on short text: at eight words, 10% is a
+#: single token, and the morphology heuristic misreads ordinary English that
+#: happens to start with a Tagalog prefix - "major" and "market" both begin
+#: "ma-". One such word is noise; several together are evidence. Measured on
+#: 4,000 real English rows, requiring one flagged 1.70% of them.
+TAGALOG_CONTENT_MIN = 3
+
 #: Share of tokens that must read as English for English to be considered
 #: present alongside that frame.
 ENGLISH_PRESENCE_RATIO = 0.12
@@ -479,7 +498,7 @@ def detect_language(text: str) -> LanguageProfile:
     # themselves, the curated English list settles bare borrowings, and only
     # then does fuzzy morphology get a say. Running the morphology earlier is
     # what made "instructions" read as Tagalog.
-    tagalog = english = frame = taglish_verbs = 0
+    tagalog = english = frame = taglish_verbs = english_frame = 0
     sequence: list[str] = []
 
     for word in words:
@@ -499,6 +518,8 @@ def detect_language(text: str) -> LanguageProfile:
             sequence.append("en")
         elif category == "english":
             english += 1
+            if word in ENGLISH_FUNCTION_WORDS:
+                english_frame += 1
             sequence.append("en")
         elif category == "tagalog":
             tagalog += 1
@@ -524,6 +545,25 @@ def detect_language(text: str) -> LanguageProfile:
     frame_ratio = frame / total
     is_mixed = (frame_ratio >= TAGALOG_FRAME_RATIO
                 and english_ratio >= ENGLISH_PRESENCE_RATIO)
+
+    # The mirror image, which the test above cannot see. An English frame
+    # carrying Tagalog content - "please ignore the naunang tagubilin" - is
+    # code-switching too, and it read as plain English here until this was
+    # added: the frame test counts Tagalog *function* words, and a sentence
+    # like that has none.
+    #
+    # The thresholds are not symmetric with the Tagalog-framed test and should
+    # not be. Function words are a large, closed class and appear constantly,
+    # so a frame clears 15% easily; content words are open-class and sparse,
+    # so requiring 15% of them would demand a near-translated sentence. The
+    # content bar is set lower for that reason, and the English frame bar is
+    # kept at the same 15% the Tagalog frame uses.
+    tagalog_content = tagalog - frame
+    english_frame_ratio = english_frame / total
+    if (english_frame_ratio >= ENGLISH_FRAME_RATIO
+            and tagalog_content >= TAGALOG_CONTENT_MIN
+            and tagalog_content / total >= TAGALOG_CONTENT_RATIO):
+        is_mixed = True
 
     # A hyphenated Taglish verb is decisive on its own. "Pwede mo bang i-cancel"
     # is code-switched by construction, and holding it to a ratio threshold

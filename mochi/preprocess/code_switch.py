@@ -53,11 +53,24 @@ made about this filter's behaviour on live traffic.
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from mochi.preprocess.flags import NormalizationFlag as F
-from mochi.preprocess.normalize import _LANG_WORD_RE, classify_word_language
+from mochi.preprocess.normalize import (
+    _LANG_WORD_RE,
+    TAGALOG_PREFIXES,
+    TAGALOG_SUFFIXES,
+    classify_word_language,
+)
+
+#: Cached Tagalog -> English word list, written by
+#: ``eval/build_tagalog_lexicon.py``. Absent on a fresh checkout, which is not
+#: an error - the neural fallback still works, just slowly.
+TAGALOG_LEXICON_PATH = (Path(__file__).resolve().parents[2] / "data"
+                        / "features" / "tagalog_lexicon.json")
 
 #: Categories from classify_word_language() that keep a word as English -
 #: either it already is, or it is the English half of a hyphenated Taglish verb
@@ -105,6 +118,34 @@ class CodeSwitchResult:
     flags: list[str] = field(default_factory=list)
 
 
+def strip_affixes(word: str) -> str:
+    """Reduce a Tagalog surface form toward its root, longest affix first.
+
+    Tagalog is agglutinative, so ``balewalain``, ``binalewala`` and
+    ``magbalewala`` are surface forms of one root. A table keyed on surface
+    forms misses all three unless every inflection is enumerated, which is why
+    the lookup strips instead of enumerating.
+
+    Longest-first matters: ``nagpa`` must be tried before ``nag``, or the
+    shorter prefix matches and leaves ``pa`` fused to the root.
+
+    Best-effort, not a morphological analyser - it can over-strip a word that
+    merely starts with the same letters. Acceptable because the result is only
+    ever a *second* dictionary key: an over-stripped root misses, and the
+    caller falls through to the neural path.
+    """
+    root = word
+    for suffix in sorted(TAGALOG_SUFFIXES, key=len, reverse=True):
+        if root.endswith(suffix) and len(root) - len(suffix) >= 3:
+            root = root[: -len(suffix)]
+            break
+    for prefix in sorted(TAGALOG_PREFIXES, key=len, reverse=True):
+        if root.startswith(prefix) and len(root) - len(prefix) >= 3:
+            root = root[len(prefix):]
+            break
+    return root
+
+
 class CodeSwitchTranslator:
     """Lazily-loaded Argos Translate ``tl -> en`` model.
 
@@ -118,6 +159,7 @@ class CodeSwitchTranslator:
     def __init__(self) -> None:
         self._translation = None
         self._wordfreq = None
+        self._lexicon: dict[str, str] | None = None
 
     def _load_wordfreq(self) -> None:
         """Load the frequency dictionary only - no torch, unlike :meth:`_load`.
@@ -174,12 +216,111 @@ class CodeSwitchTranslator:
         translation = tagalog.get_translation(english)
         if translation is None:
             raise TranslatorUnavailable("No installed tl -> en translation path.")
+
+        # argostranslate splits input into sentences before translating, and
+        # its sentencizer for this pair is stanza - which ships no Tagalog
+        # model and raises "Language tl is currently unsupported" on the first
+        # call. Every input here is one word, so there is nothing to split.
+        # Without this the fallback path crashes on the first word the lexicon
+        # does not cover, which in a gateway means a failed request.
+        class _SingleSentence:
+            def split_sentences(self, text: str) -> list[str]:
+                return [text]
+
+        try:
+            translation.underlying.sentencizer = _SingleSentence()
+        except AttributeError:  # pragma: no cover - argos internals moved
+            pass
         self._translation = translation
 
+    def _load_lexicon(self) -> None:
+        """Read the cached word list; an absent file means an empty lexicon.
+
+        Deliberately not an error - a fresh checkout has no ``data/`` at all,
+        and the neural fallback still works.
+        """
+        if self._lexicon is not None:
+            return
+        if not TAGALOG_LEXICON_PATH.exists():
+            self._lexicon = {}
+            return
+        self._lexicon = json.loads(
+            TAGALOG_LEXICON_PATH.read_text(encoding="utf-8"))["mapping"]
+
+    def lexicon_lookup(self, word: str) -> str | None:
+        """Cached translation for ``word``, or None if the table lacks it.
+
+        Exact match first, then the affix-stripped root, so an inflected form
+        resolves through its root rather than needing its own entry.
+        """
+        self._load_lexicon()
+        hit = self._lexicon.get(word)
+        if hit is not None:
+            return hit
+        root = strip_affixes(word)
+        return self._lexicon.get(root) if root != word else None
+
     def translate_word(self, word: str) -> str:
-        """Translate one Tagalog word to English. Loads the model on first call."""
+        """Translate one Tagalog word to English.
+
+        **The cached lexicon is tried first, and usually answers.** That is what
+        makes this callable from the request path: a dict lookup costs
+        microseconds, while the fallback below loads argostranslate, which pulls
+        stanza and torch and costs tens of milliseconds per call. The A14
+        amendment declined translation-before-prediction on exactly that latency
+        argument - it applies to the fallback, not to the lookup.
+
+        Grammar is not preserved, by design (see
+        ``eval/build_tagalog_lexicon.py``): the consumer is a classifier that
+        counts words, not a reader.
+        """
+        cached = self.lexicon_lookup(word)
+        if cached is not None:
+            return cached
+
+        # Anything the lexicon does not know gets a frequency check before the
+        # translator sees it. ``classify_word_language`` calls a word Tagalog if
+        # it merely *starts* with a Tagalog prefix, and English is full of those
+        # - "navigate", "national", "material" all begin "na-". Handed one,
+        # argostranslate does not decline; it mangles it, turning "navigate"
+        # into "vigate" and corrupting text that was never Tagalog.
+        #
+        # Genuine Tagalog separates cleanly on frequency: "balewalain" is 0.00
+        # in English against 3.68 in Filipino, while "navigate" is 3.68 against
+        # 3.14. Ties go to leaving the word alone, for the same reason the rest
+        # of this module prefers a false keep to a false strip.
+        if self._looks_english(word):
+            return word
+
         self._load()
-        return self._translation.translate(word)
+        try:
+            return self._translation.translate(word)
+        except Exception:
+            # The word stays in Tagalog rather than the request failing. This
+            # filter runs inline on live traffic and its output is an *extra*
+            # scannable variant, never a replacement - so a word it cannot
+            # translate costs the detectors nothing they had before, while an
+            # exception here would cost the caller their request. Translation
+            # is best-effort by construction; only the lookup is guaranteed.
+            return word
+
+    def _looks_english(self, word: str) -> bool:
+        """Whether frequency data says this word is English, not Tagalog.
+
+        Used as a guard before translation, never for the language *call* -
+        ``detect_language`` keeps its own cascade. Returns False when wordfreq
+        is unavailable or has no opinion, so a missing dependency loses the
+        guard rather than blocking every translation.
+        """
+        try:
+            self._load_wordfreq()
+        except Exception:  # pragma: no cover - wordfreq is a light dependency
+            return False
+        english = self._wordfreq.zipf_frequency(word, "en")
+        tagalog = self._wordfreq.zipf_frequency(word, _WORDFREQ_TAGALOG_CODE)
+        if english == 0.0 and tagalog == 0.0:
+            return False
+        return english >= tagalog
 
     def _resolve_uncertain(self, word: str) -> str:
         """Second opinion for a word ``classify_word_language`` called "unknown".

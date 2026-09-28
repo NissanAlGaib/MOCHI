@@ -23,10 +23,10 @@ independent tracks that meet once, at scoring.
 | 1b | Feature statistics (`eval/feature_stats.py`) | ✅ Done — 3 Sep 2026 |
 | 1c | Prune derived columns, freeze the set | ✅ Done — 3 Sep 2026 |
 | 2 | Track A — SVM, decision tree, random forest | ✅ Done — 13 Sep 2026 |
-| 3 | Track B — e5, BiLSTM, BiGRU | ⬜ blocked on GPU |
-| 4 | The comparison | ⬜ blocked on 2 + 3 |
+| 3 | Track B — e5, BiLSTM, BiGRU | ✅ Done — 13 Sep 2026 |
+| 4 | The comparison | ✅ Done — 13 Sep 2026 |
 | 5 | Taglish evaluation set | ⬜ needs native validation |
-| 6 | Ship the winner | ⬜ blocked on 4 |
+| 6 | Ship the winner | ⬜ Next — Stage II thresholds + end-to-end run |
 
 Inherited from `BUILD_PLAN.md` and unaffected by this plan: Phases 0–8, 10 and
 11 committed; Phase 9 omitted by design.
@@ -42,7 +42,9 @@ retained artifact; its findings are recorded in this document and in
 `docs/BUILD_PLAN.md`, and `eval/feature_stats.py` can still be re-run against the
 trimmed table to re-verify the frozen set whenever the corpus changes.
 
-**Step 3 (Track B) is next**, and is blocked on torch/GPU.
+**Steps 2, 3 and 4 are complete.** Step 6 (ship the winner) is next; Step 5
+(Taglish evaluation set) is unblocked but needs a native speaker, so it is
+worth starting in parallel.
 
 ### Step 0b — the split protocol in force (13 Sep 2026)
 
@@ -475,6 +477,42 @@ there is no longer a Track B to compare against.
 the same 30%, no engineered column in any input tensor, precision setting
 recorded.
 
+### Done — 13 September 2026
+
+All three trained on the 40,556-row train tier, scored on the sealed 24,829-row
+test set. No engineered column enters any input tensor: `Split` carries only
+`texts` and `labels`, and none of the three trainers imports
+`mochi.preprocess.features`.
+
+| Model | Family | F1 | Recall | FPR | Parameters |
+|---|---|---|---|---|---|
+| **E5 (fine-tuned)** | transformer | **0.9869** | 0.9804 | 0.0048 | 117,752,834 |
+| biGRU | recurrent | 0.9663 | 0.9642 | 0.0241 | 12,989,058 |
+| biLSTM | recurrent | 0.9566 | 0.9491 | 0.0269 | 13,274,754 |
+
+**Precision setting, as the step requires it be recorded:** bf16 autocast with
+gradient accumulation — `--batch-size 4 --accumulate 8`, effective batch 32, on
+an RTX 4070 Laptop (8 GB). bf16 rather than fp16 because Ada supports it
+natively and it needs no loss scaler. The trainer also switched to **dynamic
+padding**: prompts here have a median of ~88 tokens against the 512 cap, so
+fixed-width padding did roughly 5.8x the necessary work.
+
+**Two decisions worth defending at a panel.**
+
+The RNNs use **pretrained fastText** embeddings (86.6% coverage of the
+40,000-word vocabulary), not random initialisation. Random init would handicap
+them in a way nobody deploying a BiLSTM would accept, and "the transformer won"
+would then partly mean "pretraining won". Reusing E5's own embedding matrix was
+rejected for the opposite reason: it would make the two models non-independent.
+
+The RNNs **import E5's `AttentionPool`** rather than reimplementing pooling, so
+within Track B the encoder is the only thing that differs. Mean or
+last-hidden-state pooling would have changed two things at once.
+
+**Known asymmetry:** E5 arrived pretrained as a whole model; the RNNs got
+pretrained embeddings with randomly initialised recurrent layers. Part of the
+gap is pretraining rather than architecture, and the table cannot separate them.
+
 ---
 
 ## Step 4 — The comparison
@@ -497,6 +535,61 @@ legitimate user is a direct utility cost, and pooled accuracy hides it.
 
 **Definition of done:** a single table containing every model from both tracks,
 computed by one code path.
+
+### Done — 13 September 2026
+
+`eval/compare_tracks.py` is that one code path. Every model, both tracks,
+thresholds selected on the same validation split and scored once on the sealed
+test set.
+
+| Model | Track | F1 | Recall | FPR | CPU µs/req |
+|---|---|---|---|---|---|
+| **E5** | B | **0.9869** | 0.9804 | 0.0048 | 62,652 |
+| biGRU | B | 0.9663 | 0.9642 | 0.0241 | 22,337 |
+| biLSTM | B | 0.9566 | 0.9491 | 0.0269 | 24,103 |
+| random forest | A | 0.8235 | 0.8554 | 0.1696 | 22,432 |
+| svm (rbf) | A | 0.7944 | 0.8523 | 0.2240 | 1,998 |
+| decision tree | A | 0.7932 | 0.8591 | 0.2344 | 793 |
+| svm (linear) | A | 0.6835 | 0.8614 | 0.5034 | 979 |
+
+Recall at a capped false-positive rate — the number a gateway operates on:
+
+| Model | FPR ≤ 10% | FPR ≤ 5% | FPR ≤ 1% |
+|---|---|---|---|
+| E5 | 0.9987 | 0.9970 | **0.9866** |
+| biGRU | 0.9889 | 0.9797 | 0.9359 |
+| biLSTM | 0.9828 | 0.9677 | 0.9168 |
+| random forest | 0.7806 | 0.6789 | **0.5002** |
+| svm (rbf) | 0.7250 | 0.6291 | 0.3783 |
+| decision tree | 0.6984 | 0.5778 | 0.3600 |
+| svm (linear) | 0.4312 | 0.3336 | 0.1538 |
+
+**Threshold parity was required to make this table honest.** Track A's models
+had been tuned on validation; Track B's trainers report at a fixed cutoff.
+Comparing those directly measures the tuning as much as the model, so every
+model here gets its threshold from one `select_threshold` call on the same
+validation split.
+
+**The unexpected finding: Track A has no latency advantage.** The step's own
+argument above — "a model that wins by two F1 points and costs 50 ms has not
+won" — assumed the classical track would be the cheap one. Measured, the random
+forest costs **22,432 µs** against biGRU's **22,337 µs**, statistically
+identical, while scoring 0.14 F1 lower. Most of that cost is `normalize()` plus
+`extract()` computing the 18 features, which a gateway pays on every request.
+The only genuinely fast model is the decision tree at **793 µs** — 28x faster
+than anything in Track B, at F1 0.7932.
+
+Latency is measured one request at a time on CPU with the feature cache cleared.
+An earlier pass reported the forest at 58 ms and E5 at 35 ms; both were wrong —
+the forest ran `n_jobs=-1` and spent more time dispatching joblib workers than
+traversing trees, and the probe warmed on the rows it then timed, so Track A was
+timing a cache hit rather than feature extraction.
+
+**What the comparison does not settle.** Track A to Track B changes two
+variables at once: the input (18 columns to raw text) *and* the model family
+(classical to neural). A TF-IDF-plus-classical control would isolate which one
+carries the gain. It exists in `baseline_models.py` but has not been re-run on
+this split.
 
 ---
 

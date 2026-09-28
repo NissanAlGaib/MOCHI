@@ -87,7 +87,7 @@ TOKEN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 #: near-synonym relationship exists, because folding a word that carries almost
 #: no signal on its own into one that does would manufacture significance
 #: rather than reveal it.
-SYNONYM_TO_BASE: dict[str, str] = {
+HAND_BUILT_SYNONYMS: dict[str, str] = {
     # ignore - "disregard" and "forget" are themselves existing
     # INSTRUCTION_VERBS members, not new additions: they are the exact
     # motivating example above, folded here rather than left to fragment
@@ -126,6 +126,74 @@ SYNONYM_TO_BASE: dict[str, str] = {
     "comply": "obey", "adhere": "obey", "conform": "obey",
 }
 
+
+def _load_synonyms() -> dict[str, str]:
+    """The WordNet-derived map when it has been generated, else the hand list.
+
+    ``eval/wordnet_synonyms.py`` writes ``data/features/synonym_map.json`` from
+    WordNet verb synsets of ``INSTRUCTION_VERBS``. That file is what should be
+    in force: it is eight times larger, it carries phrasal verbs the hand list
+    could not express, and "WordNet 3.0 verb synsets" is a method a panellist
+    can check while a hand-written dictionary is not.
+
+    The hand-built list survives as the fallback so a fresh checkout - where
+    ``data/`` is gitignored and nltk may not be installed - still folds
+    something sensible rather than silently folding nothing. Which one is in
+    force is reported by :data:`SYNONYM_SOURCE`.
+    """
+    path = (Path(__file__).resolve().parents[1] / "data" / "features"
+            / "synonym_map.json")
+    if not path.exists():
+        return dict(HAND_BUILT_SYNONYMS)
+    mapping = json.loads(path.read_text(encoding="utf-8"))["mapping"]
+    # The hand list wins on conflict: its entries were chosen against this
+    # corpus, WordNet's against English in general.
+    return _resolve_chains({**mapping, **HAND_BUILT_SYNONYMS})
+
+
+def _resolve_chains(mapping: dict[str, str]) -> dict[str, str]:
+    """Collapse every mapping onto its terminal base form.
+
+    Merging the two sources creates chains the hand list alone never had:
+    WordNet gives ``abide by -> comply`` while the hand list gives
+    ``comply -> obey``, so "abide by" would land on "comply" or "obey" depending
+    on which entry a lookup happened to hit first. Folding has to be
+    order-independent or two sentences using the same concept still fragment
+    into different tokens - the exact failure folding exists to prevent.
+
+    Following each chain to its end makes ``abide by -> obey`` directly, and
+    restores the invariant ``tests/test_token_association.py`` pins: no term is
+    both a key and a value.
+
+    A cycle would loop forever, so the walk is bounded and leaves any term it
+    cannot terminate pointing at its immediate base - wrong, but bounded, and
+    visible as a failing disjointness test rather than a hang.
+    """
+    resolved: dict[str, str] = {}
+    for term, base in mapping.items():
+        seen = {term}
+        while base in mapping and base not in seen:
+            seen.add(base)
+            base = mapping[base]
+        resolved[term] = base
+    return {term: base for term, base in resolved.items() if term != base}
+
+
+SYNONYM_TO_BASE: dict[str, str] = _load_synonyms()
+
+#: Which map is in force, for the fit script's header and the thesis method.
+SYNONYM_SOURCE = ("wordnet" if len(SYNONYM_TO_BASE) > len(HAND_BUILT_SYNONYMS)
+                  else "hand-built")
+
+#: Multi-word entries, longest first, so ``pay no attention`` is tried before
+#: any two-word prefix of it. Built once at import: the scan runs per row over
+#: tens of thousands of rows.
+SYNONYM_PHRASES: list[tuple[tuple[str, ...], str]] = sorted(
+    ((tuple(term.split()), base)
+     for term, base in SYNONYM_TO_BASE.items() if " " in term),
+    key=lambda item: -len(item[0]),
+)
+
 #: Words that turn a bare instruction verb into an actual instruction-
 #: manipulation phrase, rather than an ordinary use of the same verb. "ignore"
 #: alone appears in narrative prose all the time ("she decided to ignore the
@@ -145,7 +213,7 @@ INSTRUCTION_CONTEXT_WORDS: frozenset[str] = frozenset({
     # the object being targeted
     "instruction", "instructions", "direction", "directions", "directive",
     "directives", "command", "commands", "prompt", "prompts", "rule", "rules",
-    "guideline", "guidelines", "restriction", "restrictions", "policy",
+    "guideline", "guidelines", "guidance", "restriction", "restrictions", "policy",
     "policies", "filter", "filters", "constraint", "constraints", "setting",
     "settings", "safety", "protocol", "protocols", "system", "training",
     "programming", "message", "guardrail", "guardrails",
@@ -220,7 +288,7 @@ def tokenize(text: str, *, ngram_max: int = 1,
     """
     words = [match.group(0).lower() for match in TOKEN.finditer(text)]
     if fold_synonyms:
-        words = [SYNONYM_TO_BASE.get(word, word) for word in words]
+        words = _fold(words)
     if ngram_max <= 1:
         return set(words)
 
@@ -229,6 +297,29 @@ def tokenize(text: str, *, ngram_max: int = 1,
         for start in range(len(words) - size + 1):
             grams.add(" ".join(words[start:start + size]))
     return grams
+
+
+def _fold(words: list[str]) -> list[str]:
+    """Fold synonyms to canonical verbs, **phrases before single words**.
+
+    Returns a list the same length as ``words`` so the proximity window's
+    indices still line up with the original text. A matched phrase puts the
+    canonical verb at its first position and leaves the remaining positions as
+    they were - those trailing words are ordinary context either way, and
+    dropping them would shift every later index and silently move the window.
+
+    Phrase-first ordering is the point. ``brush aside`` appears 185 times in the
+    training corpus and is an exact phrasal synonym of ``ignore``; matching
+    ``brush`` and ``aside`` separately finds neither.
+    """
+    folded = [SYNONYM_TO_BASE.get(word, word) for word in words]
+
+    for phrase, base in SYNONYM_PHRASES:
+        width = len(phrase)
+        for index in range(len(words) - width + 1):
+            if tuple(words[index:index + width]) == phrase:
+                folded[index] = base
+    return folded
 
 
 def instruction_verbs_in_context(text: str) -> set[str]:
@@ -254,7 +345,7 @@ def instruction_verbs_in_context(text: str) -> set[str]:
     from mochi.preprocess.features import INSTRUCTION_VERBS
 
     words = [match.group(0).lower() for match in TOKEN.finditer(text)]
-    canonical = [SYNONYM_TO_BASE.get(word, word) for word in words]
+    canonical = _fold(words)
 
     found: set[str] = set()
     for i, word in enumerate(canonical):
