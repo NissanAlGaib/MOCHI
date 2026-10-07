@@ -21,6 +21,7 @@ from mochi.mitigate.sanitizer import (
     Verdict,
     apply,
     decide,
+    digest_prompt,
     enforce,
 )
 from mochi.mitigate.url_scanner import (
@@ -44,6 +45,7 @@ __all__ = [
     "Verdict",
     "apply",
     "decide",
+    "digest_prompt",
     "enforce",
     "find_leaked_sentences",
     "inspect_response",

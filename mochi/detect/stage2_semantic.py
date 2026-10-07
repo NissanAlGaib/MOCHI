@@ -359,11 +359,17 @@ class KeywordScorer:
 
 
 def get_detector(model_dir: str | Path | None = None, *,
-                 scorer: SemanticScorer | None = None) -> Stage2Detector:
+                 scorer: SemanticScorer | None = None,
+                 device: str | None = None) -> Stage2Detector:
     """Build a Stage II detector.
 
     Not cached with ``lru_cache``: the model is large and a cached handle would
     keep it resident even after Stage II is disabled. The gateway holds one
     instance for its lifetime instead - see ``mochi/gateway/app.py``.
+
+    ``device`` is passed through to :class:`E5Scorer`; ``None`` keeps the
+    default of CUDA when available. Pin it to ``cpu`` when something else needs
+    the GPU - a locally served target model, most obviously. Ignored when an
+    explicit ``scorer`` is supplied, since that scorer chose its own device.
     """
-    return Stage2Detector(scorer or E5Scorer(model_dir))
+    return Stage2Detector(scorer or E5Scorer(model_dir, device=device))

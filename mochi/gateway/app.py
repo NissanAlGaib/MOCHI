@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -32,7 +33,13 @@ from mochi.detect import InspectionResult, inspect
 from mochi.gateway.adapters import UpstreamError, get_adapter
 from mochi.gateway.config import get_settings
 from mochi.gateway.models import ChatCompletionRequest
-from mochi.mitigate import BLOCK_STATUS, enforce, protected_text, scan_completion
+from mochi.mitigate import (
+    BLOCK_STATUS,
+    digest_prompt,
+    enforce,
+    protected_text,
+    scan_completion,
+)
 from mochi.preprocess import detect_language
 from mochi.session import RiskAccumulator
 from mochi.telemetry import (
@@ -68,14 +75,40 @@ async def lifespan(app: FastAPI):
         if settings.enable_session_risk else None
     )
 
+    # Declared system prompt. Hashing it once here is what lets enforcement
+    # tell the operator's own prompt apart from a payload claiming to be one -
+    # see the exemption note in mochi.mitigate.sanitizer.decide.
+    app.state.trusted_digests = frozenset()
+    if settings.system_prompt_file:
+        path = Path(settings.system_prompt_file)
+        if not path.exists():
+            raise RuntimeError(
+                f"MOCHI_SYSTEM_PROMPT_FILE points at {path}, which does not "
+                "exist. Remove the setting or create the file; starting "
+                "without it would silently enforce on your own system prompt."
+            )
+        declared = path.read_text(encoding="utf-8")
+        app.state.trusted_digests = frozenset({digest_prompt(declared)})
+        logger.info("Declared system prompt loaded from %s (%d chars)",
+                    path, len(declared))
+    elif not settings.enforce_on_trusted:
+        logger.warning(
+            "No MOCHI_SYSTEM_PROMPT_FILE declared. Detections inside "
+            "role=system messages will be enforced, which blocks every "
+            "request when the system prompt mentions its own confidentiality. "
+            "Declare the prompt to exempt it."
+        )
+
     app.state.stage2 = None
     if settings.enable_stage2:
         from mochi.detect.stage2_semantic import get_detector as get_stage2
 
-        app.state.stage2 = get_stage2(settings.stage2_model_dir or None)
+        app.state.stage2 = get_stage2(settings.stage2_model_dir or None,
+                                      device=settings.stage2_device or None)
         app.state.stage2.scorer.score(["warmup"])  # surface load errors now
-        logger.info("Stage II enabled - model=%s",
-                    settings.stage2_model_dir or "models/e5-fine-tuned")
+        logger.info("Stage II enabled - model=%s device=%s",
+                    settings.stage2_model_dir or "models/e5-fine-tuned",
+                    settings.stage2_device or "auto")
 
     # Same eager-load, fail-fast reasoning as Stage II above: a deployer who
     # turned this on should get a clear error at startup, not a gateway that
@@ -269,6 +302,8 @@ async def chat_completions(request: Request) -> Any:
         inspection,
         sanitize_untrusted=settings.sanitize_untrusted,
         resolve_band_by_trust=settings.resolve_band_by_trust,
+        enforce_on_trusted=settings.enforce_on_trusted,
+        trusted_digests=getattr(request.app.state, "trusted_digests", frozenset()),
     )
     record.mitigation_action_applied = verdict.action
     record.mitigation_detail = verdict.reason

@@ -53,6 +53,21 @@ pytest-html>=4.1.0         # standalone HTML report for the thesis appendix
 #       pkg = next(x for x in p.get_available_packages() if x.from_code=='tl' and x.to_code=='en'); \
 #       p.install_from_path(pkg.download())"
 
+# --- Phase 13 attack simulation ---
+# Writes reports/attack_simulation.xlsx. Used by eval/export_simulation.py
+# only, never by the gateway, so it is not a runtime dependency.
+openpyxl>=3.1
+
+# The three target models are not pip packages. They are pulled once with
+# Ollama, then rebuilt locally with a pinned context window - see
+# eval/modelfiles/ and the STOCK_TAGS note in eval/targets.py:
+#   ollama pull mistral:7b-instruct
+#   ollama pull qwen2.5:7b-instruct
+#   ollama pull llama3.1:8b-instruct-q4_K_M
+#   ollama create mochi-mistral -f eval/modelfiles/mochi-mistral.Modelfile
+#   ollama create mochi-qwen    -f eval/modelfiles/mochi-qwen.Modelfile
+#   ollama create mochi-llama   -f eval/modelfiles/mochi-llama.Modelfile
+
 # Added in later phases (kept commented so the install stays light):
 # openai>=1.50.0             # Phase 9 - Stage III arbiter
 # scikit-learn>=1.5.0        # Phase 5/13 - evaluation metrics

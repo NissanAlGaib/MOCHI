@@ -1,0 +1,9 @@
+FROM qwen2.5:7b-instruct
+
+# Ollama defaults num_ctx to ~4096 and silently truncates, which drops the
+# system prompt (and its canary) out of context on long-document attacks.
+# The OpenAI-compatible endpoint ignores per-request options, so the context
+# window has to be fixed model-side. 8192 holds a ~6000-word document plus
+# the system prompt and still fits beside the weights on an 8 GB card.
+PARAMETER num_ctx 8192
+PARAMETER temperature 0
