@@ -22,8 +22,22 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 RESULTS_PATH = REPO / "reports" / "simulation_runs.jsonl"
 
-#: 100 attacks x 3 targets x 2 conditions.
-EXPECTED_TOTAL = 600
+#: Fallback when the corpus cannot be found: 100 attacks x 3 targets x 2.
+DEFAULT_TOTAL = 600
+
+
+def expected_total(corpus: Path | None, targets: int = 3) -> int:
+    """Total runs for this job.
+
+    Derived from the corpus rather than hardcoded: the generated set is 100
+    attacks (600 runs) and the Gandalf sample is 300 (1,800), so a fixed
+    constant shows the wrong denominator for whichever one is not running.
+    """
+    if corpus and corpus.exists():
+        with corpus.open(encoding="utf-8") as handle:
+            rows = sum(1 for line in handle if line.strip())
+        return rows * targets * 2
+    return DEFAULT_TOTAL
 
 CLEAR = "\033[2J\033[H"
 BOLD = "\033[1m"
@@ -51,20 +65,20 @@ def read_rows(path: Path) -> list[dict]:
     return rows
 
 
-def render(rows: list[dict], *, started: float) -> str:
+def render(rows: list[dict], *, started: float, total: int) -> str:
     out: list[str] = []
     done = len(rows)
-    pct = done / EXPECTED_TOTAL if EXPECTED_TOTAL else 0
+    pct = done / total if total else 0
     filled = int(38 * min(pct, 1.0))
     elapsed = time.time() - started
 
     rate = done / elapsed if elapsed > 2 and done else 0
-    remaining = (EXPECTED_TOTAL - done) / rate if rate else 0
-    eta = f"{remaining / 60:.0f}m left" if rate and done < EXPECTED_TOTAL else ""
+    remaining = (total - done) / rate if rate else 0
+    eta = f"{remaining / 60:.0f}m left" if rate and done < total else ""
 
     out.append(f"{BOLD}MOCHI attack simulation{RESET}")
     out.append(f"  [{'#' * filled}{'.' * (38 - filled)}] "
-               f"{done}/{EXPECTED_TOTAL}  {DIM}{eta}{RESET}")
+               f"{done}/{total}  {DIM}{eta}{RESET}")
     out.append("")
 
     if not rows:
@@ -95,6 +109,11 @@ def render(rows: list[dict], *, started: float) -> str:
         key = (row["target_name"], row["condition"])
         per[key][row["outcome"]] += 1
         per[key]["n"] += 1
+
+    from eval.targets import TARGETS
+    for target in TARGETS:
+        for condition in ("defended", "undefended"):
+            per[(target.name, condition)]  # touch, so pending targets appear
 
     out.append(f"  {BOLD}By target{RESET}")
     out.append(f"    {'model':<22}{'arm':<12}{'runs':>6}{'success':>9}"
@@ -146,19 +165,24 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runs", type=Path, default=RESULTS_PATH)
     parser.add_argument("--once", action="store_true")
+    parser.add_argument("--corpus", type=Path, default=None,
+                        help="attack corpus, to size the progress bar")
+    parser.add_argument("--total", type=int, default=None,
+                        help="override the expected run count")
     parser.add_argument("--interval", type=float, default=2.0)
     args = parser.parse_args()
 
     started = time.time()
+    total = args.total or expected_total(args.corpus)
     if args.once:
-        print(render(read_rows(args.runs), started=started))
+        print(render(read_rows(args.runs), started=started, total=total))
         return 0
 
     try:
         while True:
             rows = read_rows(args.runs)
-            print(CLEAR + render(rows, started=started), flush=True)
-            if len(rows) >= EXPECTED_TOTAL:
+            print(CLEAR + render(rows, started=started, total=total), flush=True)
+            if len(rows) >= total:
                 print(f"\n  {GREEN}{BOLD}complete{RESET} - build the workbook:\n"
                       f"    python -m eval.export_simulation\n")
                 return 0

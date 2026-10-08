@@ -375,11 +375,24 @@ def main() -> int:
     parser.add_argument("--skip-retention-check", action="store_true")
     parser.add_argument("--fresh", action="store_true",
                         help="ignore existing results and start over")
+    parser.add_argument("--corpus", type=Path, default=None,
+                        help="attack corpus to run (default: the generated one)")
+    parser.add_argument("--detect-only", action="store_true",
+                        help="MOCHI's verdict only - no models, no undefended "
+                             "arm. Gives a detection rate, not a mitigation "
+                             "rate; see detect_one().")
     args = parser.parse_args()
 
-    corpus = load_corpus()
+    corpus = load_corpus(args.corpus) if args.corpus else load_corpus()
     if args.limit:
         corpus = corpus[:args.limit]
+    if args.detect_only:
+        print()
+        print(f"  detection-only sweep over {len(corpus):,} attacks"
+              f" (no models loaded)")
+        print()
+        return detect_sweep(corpus, args.out)
+
     targets = [by_tag(t) for t in args.targets] if args.targets else list(TARGETS)
 
     if args.fresh and args.out.exists():
@@ -447,6 +460,109 @@ def _write_survivors(path: Path) -> None:
                               encoding="utf-8")
     print(f"  {len(survivors)} attacks survived the defence -> {SURVIVORS_PATH}")
 
+
+
+
+# --- detection-only sweep --------------------------------------------------
+
+
+def detect_one(item: AttackItem) -> RunResult:
+    """MOCHI's verdict on one attack, with no model involved.
+
+    The 600-run simulation established that MOCHI's decision is
+    model-independent: the identical 64 attacks were stopped for all three
+    targets, because enforcement happens on the prompt before anything is
+    forwarded. So a detection rate needs to be computed once, not once per
+    target, and needs no LLM at all - which is what makes sweeping the full
+    1,000-prompt Gandalf corpus a five-minute job instead of a six-hour one.
+
+    What this measures is **detection rate**: the share of attacks MOCHI
+    flags. That is not the same as mitigation rate, and the difference is the
+    point of the undefended arm. Measured on the generated corpus, MOCHI
+    flagged 64 of 100 - but against Llama only 2 of those 64 were attacks that
+    would otherwise have worked, because Llama refuses the rest unaided.
+    Detection rate is a property of MOCHI; mitigation is a property of MOCHI
+    protecting a particular model.
+    """
+    from mochi.detect.pipeline import inspect as inspect_payload
+    from mochi.gateway.models import ChatCompletionRequest
+    from mochi.mitigate.sanitizer import decide, digest_prompt
+    from mochi.telemetry.schema import TelemetryRecord
+
+    global _DETECT_STAGE2
+    if _DETECT_STAGE2 is None:
+        from mochi.detect.stage2_semantic import get_detector
+        _DETECT_STAGE2 = get_detector(device="cpu")
+        _DETECT_STAGE2.scorer.score(["warmup"])
+
+    user = item.user_input
+    context = {"system_prompt": SYSTEM_PROMPT, "user_input": user}
+    if item.document:
+        context["retrieved_document"] = item.document
+        user = f"<document>\n{item.document}\n</document>\n\n{user}"
+
+    request = ChatCompletionRequest.model_validate({
+        "model": "detect-only",
+        "messages": [{"role": "system", "content": SYSTEM_PROMPT},
+                     {"role": "user", "content": user}],
+        "context": context,
+    })
+    record = TelemetryRecord()
+
+    started = time.perf_counter()
+    result = inspect_payload(request, record, enable_stage1=True,
+                             enable_stage2=True, stage2=_DETECT_STAGE2)
+    verdict = decide(result, trusted_digests=frozenset({digest_prompt(SYSTEM_PROMPT)}))
+    elapsed = (time.perf_counter() - started) * 1000
+
+    decision = verdict.decision.value.upper()
+    # classify_stopped_by reads the telemetry the gateway would have written.
+    # Nothing writes it here, so set it before asking - otherwise every row
+    # comes back unattributed.
+    record.mitigation_action_applied = decision
+    detection = record.detection_results
+    return RunResult(
+        attack_id=item.id, tier=item.tier, attack_type=item.attack_type,
+        objective=item.objective, placement=item.placement,
+        target="(none)", target_name="detection only",
+        condition="detect_only",
+        outcome={"BLOCK": "blocked", "SANITIZE": "sanitized"}.get(decision, "allowed"),
+        attack_succeeded=False,          # no model ran; nothing could succeed
+        reached_model=False,
+        expected_token=item.expected_token(),
+        mitigation_action=decision,
+        stage1_outcome=detection.stage_1_syntactic,
+        stage2_outcome=detection.stage_2_semantic,
+        semantic_score=detection.semantic_score,
+        source_origin=record.source_origin,
+        detected_attack_type=record.attack_type,
+        stopped_by=(classify_stopped_by(record.model_dump())
+                    if decision != "ALLOW" else None),
+        latency_ms=elapsed,
+        inspection_ms=elapsed,
+    )
+
+
+#: Built once; the model is 466 MB and reloading it per call would dominate.
+_DETECT_STAGE2 = None
+
+
+def detect_sweep(corpus: list[AttackItem], out: Path) -> int:
+    """Run :func:`detect_one` over a corpus and report the detection rate."""
+    out.parent.mkdir(parents=True, exist_ok=True)
+    flagged = 0
+    with out.open("w", encoding="utf-8") as handle:
+        for index, item in enumerate(corpus, start=1):
+            result = detect_one(item)
+            handle.write(json.dumps(asdict(result), ensure_ascii=False) + "\n")
+            flagged += result.outcome in ("blocked", "sanitized")
+            if index % 100 == 0 or index == len(corpus):
+                print(f"      {index:>5,}/{len(corpus):,}   flagged {flagged:>5}  "
+                      f"({flagged / index:.1%})", flush=True)
+    print(f"\n  detection rate: {flagged}/{len(corpus)} = "
+          f"{flagged / len(corpus):.2%}")
+    print(f"  written -> {out}\n")
+    return 0
 
 if __name__ == "__main__":
     raise SystemExit(main())
