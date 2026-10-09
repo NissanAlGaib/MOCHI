@@ -150,6 +150,11 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=None,
                         help="first N rows per dataset, for a smoke test")
     parser.add_argument("--datasets", nargs="*", default=None)
+    parser.add_argument("--model-dir", type=Path, default=None,
+                        help="Stage II weights to evaluate (default: the "
+                             "shipped models/e5-fine-tuned). Pass an "
+                             "alternative to compare two models on identical "
+                             "inputs.")
     parser.add_argument("--device", default="cpu",
                         help="torch device for Stage II (default cpu: the GPU "
                              "is usually holding a target model)")
@@ -160,7 +165,7 @@ def main() -> int:
     stage2 = None
     if not args.no_stage2:
         from mochi.detect.stage2_semantic import get_detector
-        stage2 = get_detector(device=args.device)
+        stage2 = get_detector(args.model_dir, device=args.device)
         stage2.scorer.score(["warmup"])  # surface load errors before the loop
 
     sources = [s for s in SOURCES

@@ -372,6 +372,10 @@ def main() -> int:
                         help="first N attacks only, for a smoke test")
     parser.add_argument("--targets", nargs="*", default=None,
                         help="subset of target tags")
+    parser.add_argument("--model-dir", type=Path, default=None,
+                        help="Stage II weights for --detect-only (default: "
+                             "the shipped models/e5-fine-tuned). Lets two "
+                             "checkpoints be compared on identical inputs.")
     parser.add_argument("--skip-retention-check", action="store_true")
     parser.add_argument("--fresh", action="store_true",
                         help="ignore existing results and start over")
@@ -391,7 +395,7 @@ def main() -> int:
         print(f"  detection-only sweep over {len(corpus):,} attacks"
               f" (no models loaded)")
         print()
-        return detect_sweep(corpus, args.out)
+        return detect_sweep(corpus, args.out, model_dir=args.model_dir)
 
     targets = [by_tag(t) for t in args.targets] if args.targets else list(TARGETS)
 
@@ -466,7 +470,7 @@ def _write_survivors(path: Path) -> None:
 # --- detection-only sweep --------------------------------------------------
 
 
-def detect_one(item: AttackItem) -> RunResult:
+def detect_one(item: AttackItem, *, model_dir: Path | None = None) -> RunResult:
     """MOCHI's verdict on one attack, with no model involved.
 
     The 600-run simulation established that MOCHI's decision is
@@ -492,7 +496,7 @@ def detect_one(item: AttackItem) -> RunResult:
     global _DETECT_STAGE2
     if _DETECT_STAGE2 is None:
         from mochi.detect.stage2_semantic import get_detector
-        _DETECT_STAGE2 = get_detector(device="cpu")
+        _DETECT_STAGE2 = get_detector(model_dir, device="cpu")
         _DETECT_STAGE2.scorer.score(["warmup"])
 
     user = item.user_input
@@ -547,13 +551,14 @@ def detect_one(item: AttackItem) -> RunResult:
 _DETECT_STAGE2 = None
 
 
-def detect_sweep(corpus: list[AttackItem], out: Path) -> int:
+def detect_sweep(corpus: list[AttackItem], out: Path, *,
+                 model_dir: Path | None = None) -> int:
     """Run :func:`detect_one` over a corpus and report the detection rate."""
     out.parent.mkdir(parents=True, exist_ok=True)
     flagged = 0
     with out.open("w", encoding="utf-8") as handle:
         for index, item in enumerate(corpus, start=1):
-            result = detect_one(item)
+            result = detect_one(item, model_dir=model_dir)
             handle.write(json.dumps(asdict(result), ensure_ascii=False) + "\n")
             flagged += result.outcome in ("blocked", "sanitized")
             if index % 100 == 0 or index == len(corpus):

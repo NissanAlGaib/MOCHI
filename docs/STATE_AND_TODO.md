@@ -94,6 +94,41 @@ identical 64 attacks were stopped for all three targets, because enforcement
 happens on the prompt before anything is forwarded. This is the empirical form
 of the model-independence claim, and it was obtained free of charge.
 
+**The Tagalog translation layer is unnecessary, and measurably harmful.**
+Three-arm ablation on 250 code-switched samples drawn from PromptShield rows
+with **zero overlap** with anything the current weights have seen:
+
+| Arm | Recall | FPR |
+|---|---|---|
+| A - original English (baseline) | 98.4% | 0.80% |
+| B - Taglish, no translation | **100.0%** | 1.60% |
+| C - Taglish + translation layer | 97.6% | **4.00%** |
+
+Arm B beats arm C on both measures: the layer costs recall and multiplies
+false positives 2.5x. Arm B matching arm A means **code-switching costs the
+detector essentially nothing** - ``multilingual-e5-small`` is pretrained on
+Tagalog and reads the input directly.
+
+The layer fails because it is word-for-word substitution with, in its own
+metadata, "grammar is not preserved": a 180-entry lexicon renders ``ang`` (a
+determiner) as "asked" and ``mula sa`` as "?". The detector then scores
+degraded English, which is noisier than the Taglish it started from.
+
+**Decision: keep the code, keep it disabled, report the ablation.** Deleting it
+would remove 1,519 lines across five files and 40 tests, and would delete the
+ability to report the result - a measured negative is a contribution, absent
+code is not. The evidence is also one test on machine-generated data: the
+generator substitutes words into *English* grammatical frames, while real
+Taglish often uses a Tagalog frame with English content words. Behaviour on
+authentic code-switching is unmeasured.
+
+Raw numbers in ``reports/taglish_ablation.json``.
+
+**There is no "Taglish layer" in the architecture.** Nothing handles Taglish as
+a component. The capability is 2,400 Taglish rows in the training data plus E5
+being multilingual by origin. Worth stating plainly in the thesis, because the
+translation layer's existence invites the opposite assumption.
+
 **Two defects found only by system-level evaluation.** Both passed 683 unit
 tests. See section 3.
 
