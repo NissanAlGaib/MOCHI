@@ -207,8 +207,8 @@ def report(analysis: dict) -> None:
     for name, entry in analysis["candidates"].items():
         m = entry["test"]
         print(f"  {name:<18}{entry['threshold']:>11.4f}{m['f1']:>9.4f}"
-              f"{m['false_positive_rate']:>9.4f}{m['recall']:>9.4f}"
-              f"{m['fp']:>8}{m['fn']:>8}")
+              f"{m['fpr']:>9.4f}{m['recall']:>9.4f}"
+              f"{m['confusion']['fp']:>8}{m['confusion']['fn']:>8}")
     print("=" * 86)
 
     print()
