@@ -314,6 +314,21 @@ def main() -> int:
               f"fpr {report['test']['fpr']:.4f}")
 
     args.out.mkdir(parents=True, exist_ok=True)
+
+    # Record which rows this run fitted on, beside the weights. build_splits
+    # recomputes the split from whatever is in the data directory, so without
+    # this there is no way to tell later what the model saw - and the corpus
+    # moves. See training/split_manifest.py for the failures this prevents.
+    from training.split_manifest import build as build_manifest
+    from training.split_manifest import write as write_manifest
+
+    manifest_path = write_manifest(
+        build_manifest(train, validation, test,
+                       corpus_dir=args.data, seed=args.seed),
+        args.out,
+    )
+    print(f"Wrote {manifest_path}")
+
     (args.out / "training_report.json").write_text(
         json.dumps(report, indent=2, default=str), encoding="utf-8"
     )
