@@ -68,6 +68,17 @@ class NormalizationFlag(StrEnum):
     ATTRIBUTE_TEXT_EXTRACTED = "attribute_text_extracted"
     FILE_METADATA_EXTRACTED = "file_metadata_extracted"
 
+    # --- Images ---
+    # Text recovered from an image by OCR. Without this, a payload rendered
+    # as pixels passes every stage untouched, because every stage inspects a
+    # string that no longer contains it.
+    IMAGE_TEXT_EXTRACTED = "image_text_extracted"
+    # Text only a contrast-equalized pass could read: pale on pale, legible
+    # to a vision encoder and invisible to a reviewer. Carries the same
+    # reasoning as ZERO_WIDTH_CHARS_DETECTED - content placed where a human
+    # cannot see it but a model can is not an accident.
+    IMAGE_HIDDEN_TEXT_DETECTED = "image_hidden_text_detected"
+
     # --- Resource guards ---
     DECODE_DEPTH_EXCEEDED = "decode_depth_exceeded"
     OVERSIZED_AFTER_DECODE = "oversized_after_decode"

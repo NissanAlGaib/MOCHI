@@ -268,7 +268,7 @@ async def chat_completions(request: Request) -> Any:
 
     record.session_id = parsed.session_id
     record.target_model = parsed.model or settings.target_llm_model
-    inspectable = parsed.inspectable_text()
+    inspectable = parsed.inspectable_text(read_images=settings.read_images)
     record.payload_characteristics = PayloadCharacteristics.from_text(
         inspectable,
         include_content=settings.log_payloads,

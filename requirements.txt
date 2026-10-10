@@ -53,6 +53,13 @@ pytest-html>=4.1.0         # standalone HTML report for the thesis appendix
 #       pkg = next(x for x in p.get_available_packages() if x.from_code=='tl' and x.to_code=='en'); \
 #       p.install_from_path(pkg.download())"
 
+# --- Image inspection (MOCHI_READ_IMAGES, off by default) ---
+# OCR for inline images, so a payload rendered as pixels is inspected like
+# any other text. Chosen over pytesseract (needs a system binary) and easyocr
+# (pulls a second deep-learning runtime) because onnxruntime is already here.
+# Optional: image_extract degrades to "no text found" without it.
+rapidocr_onnxruntime>=1.3
+
 # --- Phase 13 attack simulation ---
 # Writes reports/attack_simulation.xlsx. Used by eval/export_simulation.py
 # only, never by the gateway, so it is not a runtime dependency.

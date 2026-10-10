@@ -60,6 +60,21 @@ class TaggedContext(BaseModel):
         ]
 
 
+def _image_block_text(block: dict) -> list[str]:
+    """Text recovered from one image content block, visible and concealed.
+
+    Imported lazily so a deployment that never enables OCR never loads the
+    runtime. Any failure yields nothing rather than raising: a malformed image
+    must not take down a request that may be entirely legitimate.
+    """
+    try:
+        from mochi.preprocess.image_extract import extract_from_content_block
+
+        return extract_from_content_block(block).all_segments
+    except Exception:  # noqa: BLE001 - OCR absent, broken, or fed a bad image
+        return []
+
+
 class ChatCompletionRequest(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -78,12 +93,24 @@ class ChatCompletionRequest(BaseModel):
             payload["model"] = default_model
         return payload
 
-    def inspectable_text(self) -> str:
+    def inspectable_text(self, *, read_images: bool = False) -> str:
         """All text the detection pipeline should examine, as one string.
 
         Prefers the tagged ``context`` when supplied; otherwise falls back to
-        message content. Handles multimodal content blocks by extracting their
-        text parts and ignoring non-text (images, audio).
+        message content, including the text parts of multimodal blocks.
+
+        ``read_images`` turns on OCR for inline image blocks. Off by default
+        for two reasons: it costs roughly 1.8 s per image against ~200 ms for
+        the rest of inspection, and it pulls in an OCR runtime a text-only
+        deployment has no use for. On, a payload rendered as pixels is
+        recovered and inspected like any other text - without it the detector
+        reads an empty string and the request is allowed. See
+        ``mochi.preprocess.image_extract``.
+
+        Only inline ``data:`` images are read. A remote URL is left alone:
+        fetching it would make the gateway issue outbound requests to
+        attacker-chosen hosts on every inspection, which is a worse hole than
+        the one being closed.
         """
         if self.context is not None:
             return "\n".join(text for _, text in self.context.segments())
@@ -95,6 +122,10 @@ class ChatCompletionRequest(BaseModel):
                 parts.append(content)
             elif isinstance(content, list):
                 for block in content:
-                    if isinstance(block, dict) and isinstance(block.get("text"), str):
+                    if not isinstance(block, dict):
+                        continue
+                    if isinstance(block.get("text"), str):
                         parts.append(block["text"])
+                    elif read_images:
+                        parts.extend(_image_block_text(block))
         return "\n".join(parts)

@@ -58,6 +58,15 @@ class Settings:
     bypass Stage II by relabelling their payload. With one, only that exact
     text is exempt. See ``mochi.mitigate.sanitizer.decide``."""
 
+    read_images: bool
+    """OCR inline images before inspection.
+
+    Off by default. A payload rendered as pixels is invisible to every stage
+    without it - the detector reads an empty string and allows the request.
+    On, the recovered text flows through the normal pipeline. Costs roughly
+    1.8 s per image against ~200 ms for the rest of inspection, and needs
+    ``rapidocr_onnxruntime``, so it is opt-in rather than assumed."""
+
     enforce_on_trusted: bool
     """Act on detections inside TRUSTED segments.
 
@@ -136,6 +145,7 @@ def get_settings() -> Settings:
         # to a Stage III LLM. Deterministic and free; see docs/BUILD_PLAN.md.
         resolve_band_by_trust=_get_bool("MOCHI_RESOLVE_BAND_BY_TRUST", True),
         system_prompt_file=os.getenv("MOCHI_SYSTEM_PROMPT_FILE", "").strip(),
+        read_images=_get_bool("MOCHI_READ_IMAGES", False),
         enforce_on_trusted=_get_bool("MOCHI_ENFORCE_ON_TRUSTED", False),
         # Cross-turn risk accumulation. On by default: it costs a dict lookup and
         # is the only defence against multi-step chains. Requires clients to send
