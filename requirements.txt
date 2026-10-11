@@ -26,6 +26,12 @@ pytest-html>=4.1.0         # standalone HTML report for the thesis appendix
 #
 #   pip install torch transformers
 #
+# The Docker image DOES install both, because it ships with
+# MOCHI_ENABLE_STAGE2=true and the gateway is not useful without it. It
+# installs the CPU wheel (--index-url .../whl/cpu): Stage II runs on CPU, and
+# 4.3 GB of the 4.4 GB CUDA build is kernels that would never load. See the
+# Dockerfile.
+#
 # torch>=2.4.0
 # transformers>=4.45.0
 # sentence-transformers is NOT used: its default mean pooling is the behaviour

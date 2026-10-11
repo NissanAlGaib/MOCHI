@@ -1,0 +1,36 @@
+# The build context is sent to the daemon in full before the first instruction
+# runs, so anything not needed in the image belongs here regardless of whether
+# a COPY would have picked it up.
+
+# Trained weights - 468 MB each, and mounted at runtime rather than baked in.
+models/
+
+# Virtualenvs: a Windows venv is useless in a Linux image and torch makes it
+# the largest thing in the repo.
+.venv/
+venv/
+env/
+
+.git/
+.gitignore
+**/__pycache__/
+**/*.py[cod]
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# Evaluation inputs and outputs. The harness never runs inside the image.
+eval/
+tests/
+reports/
+data/
+docs/
+notebooks/
+
+# Real credentials. The container is configured through compose instead, so a
+# stray .env must not become a layer - layers are readable by anyone with the
+# image.
+.env
+*.log
+logs/

@@ -48,6 +48,53 @@ python -m uvicorn mochi.gateway.app:app --reload
 
 The gateway listens on `http://127.0.0.1:8000`.
 
+### Or with Docker
+
+```bash
+cp .env.example .env              # then edit .env and add your OPENAI_API_KEY
+docker compose up --build
+curl http://127.0.0.1:8000/health
+```
+
+The image installs the **CPU build of torch**. Stage II runs on CPU by design
+— when the protected model is also local, an 8 GB card holding a 7B target at
+an 8k context has no room for a second resident model — and the CUDA wheel is
+4.3 GB of kernels that would never be used. Expect a first build of several
+minutes and roughly 2 GB of image.
+
+Three paths are mounted rather than copied in, so `docker compose up` must run
+from the repo root:
+
+| Mount | Why |
+|---|---|
+| `models/e5-fine-tuned` | 468 MB of weights. Read-only, so a compromised gateway cannot rewrite its own detector, and swapping checkpoints (`e5-banking`) needs no rebuild. |
+| `data/attacks/system_prompt.txt` | The declared system prompt. Without it the gateway starts but refuses almost everything — see below. |
+| `logs/` | The only path the container writes to. |
+
+`compose` overrides `OPENAI_BASE_URL` to `host.docker.internal:11434`. Inside a
+container `localhost` is the container, so the value in `.env` — written for
+running on the host — would fail to reach Ollama. Ollama itself stays on the
+host; it is not containerised here, because it holds the GPU and the pulled
+model blobs.
+
+**If the container restart-loops**, read the logs before changing anything:
+
+```bash
+docker compose logs gateway
+```
+
+Almost always the model mount is wrong. Stage II is loaded eagerly and scores
+a warm-up string before the app accepts traffic, so an unreadable
+`models/e5-fine-tuned` raises at startup and the process exits. That is
+deliberate: serving Stage I alone — 5.9% recall — while an operator believes
+Stage II is running is the failure worth avoiding, so the gateway refuses to
+start instead of quietly degrading.
+
+Note that `/health` answers from configuration alone and never touches the
+detector, so a passing healthcheck proves the process is up, not that
+detection is live. To confirm Stage II actually loaded, look for
+`Stage II enabled` in the startup log.
+
 ## Using it
 
 MOCHI speaks the OpenAI chat-completions API, so integration is a one-line

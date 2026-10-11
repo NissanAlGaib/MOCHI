@@ -1,0 +1,45 @@
+# MOCHI gateway, pointed at an Ollama already running on the host.
+#
+#   docker compose up --build
+#   curl http://127.0.0.1:8000/health
+#
+# What is mounted rather than built in, and why:
+#
+#   models/e5-fine-tuned      468 MB of weights. Read-only, so a compromised
+#                             gateway cannot rewrite its own detector.
+#   data/attacks/…prompt.txt  The declared system prompt. Stage II scores a
+#                             security-worded prompt as an attack (0.7508), so
+#                             without this file every request is refused - the
+#                             gateway compares against its SHA-256 and exempts
+#                             only that exact text.
+#   logs/                     The only path the container writes to.
+
+services:
+  gateway:
+    build: .
+    image: mochi-gateway:latest
+    ports:
+      - "127.0.0.1:8000:8000"
+    env_file:
+      - .env
+    environment:
+      # These override .env, which is written for running on the host. Inside a
+      # container "localhost" is the container, so an unchanged OPENAI_BASE_URL
+      # fails to connect rather than reaching Ollama.
+      OPENAI_BASE_URL: http://host.docker.internal:11434/v1
+      MOCHI_HOST: 0.0.0.0
+      MOCHI_LOG_PATH: /app/logs/mochi.jsonl
+      MOCHI_STAGE2_MODEL_DIR: /app/models/e5-fine-tuned
+      MOCHI_SYSTEM_PROMPT_FILE: /app/data/attacks/system_prompt.txt
+      MOCHI_ENABLE_STAGE2: "true"
+      MOCHI_STAGE2_DEVICE: cpu
+      MOCHI_READ_IMAGES: "true"
+    volumes:
+      - ./models/e5-fine-tuned:/app/models/e5-fine-tuned:ro
+      - ./data/attacks/system_prompt.txt:/app/data/attacks/system_prompt.txt:ro
+      - ./logs:/app/logs
+    extra_hosts:
+      # Docker Desktop resolves host.docker.internal already; on Linux it does
+      # not exist unless mapped. Harmless where it is redundant.
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
