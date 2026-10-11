@@ -211,36 +211,60 @@ Extraction now counts any planted secret.
 **4.1 Commit everything - DONE.** Everything through Docker packaging is
 committed and the tree is clean. 713 tests pass.
 
-**4.2 Decide on the retrain.** Two independent reasons to do one, and they
-share the same cost:
+**4.2 Decide on the retrain - the decision is now an operating-point choice,
+not a repair.** `models/e5-banking` already exists and already does more than
+it was credited with. Reproduce with `eval/taglish_contamination.py`.
 
-- `data/clean/taglish_heldout.csv` is pooled into training (141 of 300 rows in
-  train, 68 in validation). No Taglish claim is reportable until it is sealed.
-- BANKING77 ships 10,003 unused training rows that would supply the missing
-  benign customer-support examples.
+**It never saw the Taglish held-out set.** Its corpus omits
+`taglish_heldout.csv` entirely - verified by hash, 0 of 300 rows in train or
+validation. So the Taglish claim is measurable today, on all 300 rows, with no
+subsetting and no caveat about memorisation.
 
-Train on **`banking77_train`** (10,003 rows), keep `banking77_test` sealed,
-leave **CLINC150 entirely untouched** as the out-of-distribution test.
+**And the contamination in `e5-fine-tuned` was worth almost nothing:**
 
-BANKING77 is the right training source and not because the scenario is a bank.
-It is real support traffic, so it is dense in exactly the vocabulary that
-fails - `wrong` 3.12%, `cancel` 2.47%, `verify` 1.87%, `not work` 1.20% of
-rows. CLINC150 is assistant queries ("set a timer", "what's the weather") and
-barely contains that language at all (`wrong` 0.11%, `urgent` 0.00%), so
-training on it would teach the model little. The distinction that matters is
-**support traffic versus assistant queries**, not banking versus general.
+| Model | Subset | n | Recall | FPR | F1 |
+|---|---|---|---|---|---|
+| e5-fine-tuned | 91 rows it did NOT see | 91 | 1.0000 | 0.0189 | 0.9870 |
+| e5-fine-tuned | 209 rows it DID see | 209 | 1.0000 | 0.0206 | 0.9912 |
+| e5-banking | all 300, none seen | 300 | 0.9867 | 0.0133 | 0.9867 |
 
-Then: if both FPRs drop, the fix generalises. If only BANKING77 drops, it is
-domain-bound - still a publishable finding, and a direct answer to "will it
-fail in other fields?"
+Recall is identical on memorised and unmemorised rows, and FPR is slightly
+*better* on the unseen ones. The earlier statement in this document - that no
+Taglish claim is reportable until the set is sealed - was right procedurally
+and wrong empirically. Likely cause: `taglish_generated.csv` puts 2,400 rows of
+similar synthetic Taglish into training regardless, so one held-out row carries
+little the model has not generalised already.
 
-Caveat: both datasets are short utterances. Neither adds long benign documents,
-so neither addresses false positives in long retrieved content - which nothing
-currently measures.
+**Read that limitation carefully.** It shows the model is not memorising
+`taglish_heldout.csv`. It does **not** show the model handles Taglish as native
+speakers write it, because the held-out set may sit close in distribution to
+the generated set it was drawn alongside. Native-speaker validation is still
+missing and no retraining substitutes for it. That remains the honest gap in
+the central contribution.
 
-Cost: ~30 min training, ~2.5 h re-running everything MOCHI-dependent.
-**Undefended arms do not need re-running** - they measure the bare model and
-MOCHI is not involved. That is half the runs and the slower half.
+### So what the choice actually is
+
+| | e5-fine-tuned | e5-banking |
+|---|---|---|
+| Gandalf detection | **85.3%** | 80.3% |
+| FPR BANKING77 | 2.66% | **0.13%** |
+| FPR CLINC150 | 3.18% | **1.02%** |
+| Taglish held-out | 91 clean rows | **300 clean rows** |
+
+Five points of detection against a 20x reduction in false positives: 2.66% is
+one legitimate query in 38 refused, 0.13% is one in 769. Neither model is a
+complete defence, so the detection gap is between two leaky configurations
+while the FPR gap is between usable and not.
+
+**Recommended: present both as an operating point, and do not pick one.** A
+characterised trade-off is a stronger result than a single number, it answers
+the panel's "what does the defence cost?" directly, and it keeps the headline
+85.3% while showing deployability is reachable in the same system. Ship
+`e5-banking` as the deployment default and `e5-fine-tuned` as the
+maximum-detection arm.
+
+Still open and unchanged: neither dataset adds long benign documents, so false
+positives in long retrieved content remain unmeasured.
 
 ### Not yet measured
 
