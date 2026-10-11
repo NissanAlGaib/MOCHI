@@ -268,35 +268,43 @@ in.
 corpus change. Order matters: token association -> feature table -> Track A ->
 comparison. Conclusions do not change, only reproducibility.
 
-**4.13 Docker packaging** (Phase 14) - **files written, build never run.**
-The deliverable behind the adviser's plug-and-play question. See
-`NEXT_STEPS.md` Part A.
+**4.13 Docker packaging** (Phase 14) - **done and verified.** The deliverable
+behind the adviser's plug-and-play question.
 
-`Dockerfile`, `docker-compose.yml` and `.dockerignore` exist as of commit
-`2af40d5`, written by reading the code rather than by building. Docker is not
-installed on this machine and the disk is at 90% (97 GB free), so nothing has
-been verified. **The one remaining step is a single `docker compose up
---build` from the repo root**, after installing Docker Desktop - which needs a
-reboot and WSL2, so it was not done unattended.
+Built and run on 2026-10-11 (engine 29.8.2, WSL2, per-user install). Commits:
+`2af40d5` the files, `5f9a237` the fixes that running it exposed. Image is
+2.55 GB with `torch 2.14.1+cpu`.
 
-What to watch on that first build:
+    docker compose up --build          # MOCHI_PUBLISH_PORT=8001 if 8000 is taken
 
-- the apt layer (`libgomp1`, `libglib2.0-0`, `libgl1`). These are there
-  because onnxruntime links OpenMP and RapidOCR pulls
-  opencv-python-headless. A missing one fails as an ImportError at request
-  time, not at build time, so test an image request before believing it works.
-- bind-mount permissions. The container runs as uid 10001 against host-owned
-  `logs/`. Docker Desktop is permissive; a Linux host is not.
-- a restart loop means the `models/e5-fine-tuned` mount is wrong, not that
-  the gateway is broken. Stage II is loaded eagerly, so a bad mount exits
-  before traffic is served. `docker compose logs gateway`.
+Verified end to end, container to host Ollama: benign 200; direct injection
+403; indirect injection in a document 200 with the payload redacted, no canary
+leak and the overdraft fact intact; image-borne injection 403 with
+`image_text_extracted` in telemetry; `ocr_ran: True` inside the image;
+telemetry written to the mounted volume as uid 10001.
 
-Two things worth knowing about the design, both verified against source:
-`training/` is a runtime dependency (`stage2_semantic.py:274` imports
-`training.model`), and the image installs the **CPU** torch wheel explicitly
-because requirements.txt deliberately omits torch while the image ships
-`MOCHI_ENABLE_STAGE2=true`. Without that the container would run Stage I
-alone at 5.9% recall and still report healthy.
+Two defects were found only by running it, both fixed:
+
+- **All gateway log lines were discarded.** `basicConfig()` lives in `main()`,
+  which `python -m uvicorn ...` bypasses. That swallowed the undeclared-system-
+  prompt warning, the message explaining why a gateway refuses everything. CMD
+  now uses `python -m mochi.gateway.app`.
+- **Port 8000 clashed with a host gateway** and failed misleadingly: compose
+  could not bind while `curl :8000/health` still answered 200 from the host
+  process. One health check in that session passed against the wrong gateway.
+  `MOCHI_PUBLISH_PORT` now overrides.
+
+**Reproducibility result worth citing.** `requirements.txt` uses `>=`, so the
+image resolved torch 2.14.1 / transformers 5.19.0 against the host's
+2.6.0+cu124 / 5.17.0. Stage II scores are identical to six decimals across
+five probes (English, Taglish, benign):
+`[0.995995, 0.015821, 0.297065, 0.28658, 0.021507]`. Measured results
+reproduce in the image. Pinning exact versions is still safer for the final
+artifact and has not been done.
+
+Remaining, minor: the image installs pytest and openpyxl, which the gateway
+never imports; bind-mount ownership is a non-issue on Docker Desktop but would
+bite on a Linux host (container runs as uid 10001).
 
 ---
 
