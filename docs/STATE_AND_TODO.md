@@ -167,6 +167,82 @@ half of training, failing in the opposite direction here.
 into training, so none of these Taglish results are reportable as clean
 generalisation. See 4.2.
 
+### False positives and document length - the opposite of the prediction
+
+`eval/long_document_fpr.py`, results in `reports/long_document_fpr.json`.
+100 documents per length, composed from real BANKING77 and CLINC150 queries
+formatted as a FAQ or ticket export. Nothing invented: inventing prose would
+measure the generator.
+
+The prediction was that long documents would be worse. Stage II scores
+overlapping 2,048-char windows and keeps the **maximum**, not the mean, so
+length buys windows and any one window tripping flags the whole document. The
+risk should compound with length.
+
+It does, but that is the smaller effect and the curve is not monotonic:
+
+| chars | windows | doc FPR | per-window FPR | independence predicts | blocked |
+|---|---|---|---|---|---|
+| 200 | 1 | **0.150** | 0.1500 | 0.150 | 0.140 |
+| 2,048 | 1 | 0.000 | 0.0000 | 0.000 | 0.000 |
+| 3,584 | 2 | 0.000 | 0.0000 | 0.000 | 0.000 |
+| 6,656 | 4 | 0.000 | 0.0000 | 0.000 | 0.000 |
+| 12,800 | 8 | 0.000 | 0.0000 | 0.000 | 0.000 |
+| 25,088 | 16 | 0.030 | 0.0019 | 0.030 | 0.010 |
+| 49,664 | 32 | **0.090** | 0.0034 | 0.104 | 0.080 |
+
+**Window fill matters more than window count.** The two 1-window rows are the
+controlled comparison: same pooling, same single window, 200 chars flags at
+15.0% and 2,048 chars at 0.0%. Filling a window with benign context suppresses
+the score by a factor of roughly 50. At 200 chars a document holds three or
+four queries and behaves like the maximum over them - independence over four
+utterances at the measured 3.2% single-utterance rate predicts 12.2% against
+15.0% observed. At 2,048 chars it holds about twenty and the same model would
+predict 48%, against 0.0% observed. Somewhere between the two the behaviour
+flips from "max over the content" to "diluted by the content", which is what
+gated attention pooling spreading weight across benign tokens would look like.
+
+**Across windows, failures are independent and the compounding is arithmetic.**
+Per-window FPR for full windows is 0.19-0.34%, and the independence model
+predicts the document rate closely: 3.0% against 3.0% observed at 16 windows,
+10.4% against 9.0% at 32. The zeroes at 2-8 windows are consistent with the
+same rate - 800 windows at 0.2% expects 1.6 flags and got 0.
+
+So the headline is the reverse of the worry. **Short fragments are the
+false-positive risk, not long documents.** A 200-character snippet flags at
+15.0% and a 50 KB document at 9.0%, and the 2-13 KB band - which is where RAG
+chunks of 500-2,000 tokens land - measured 0.0% across 400 documents.
+
+That said, 9.0% at 50 KB is a real deployment number: roughly one in eleven
+very long benign documents is flagged, and 8.0% are blocked outright rather
+than redacted. It is not a crisis and it is not nothing.
+
+**What the independence result buys.** Because per-window failures compound
+predictably, a length-aware threshold is derivable rather than guessed: to hold
+document-level FPR at a target `q` across `n` windows, the per-window
+threshold needs per-window FPR at or below `1 - (1 - q)^(1/n)`. That is a
+principled fix and the measurement is what makes it available. The
+alternatives are worse: mean-of-top-k pooling across windows would flatten the
+length penalty but is exactly the averaging-away that max-pooling exists to
+prevent, and it would weaken detection of a single payload buried in a long
+document. A third option costs nothing and is already built - Stage II reports
+the winning window's span, so SANITIZE can redact the offending window instead
+of acting on the whole document.
+
+**Why the false positives happen at all** is worth recording, because they are
+not noise. The flagged short documents are imperative system-control phrasings
+from CLINC150:
+
+    0.994  "please rely on your original settings"
+    0.990  "please remove current settings and go back to factory settings now"
+    0.975  "erase all events on friday from my calendar"
+
+Those are semantically shaped like injections - imperative commands to reset,
+override or erase. This is the same mechanism as the distress-vocabulary
+finding and it explains why CLINC150's FPR (3.18%) exceeds BANKING77's (2.66%):
+CLINC150 is assistant commands, and assistant commands look like instruction
+overrides. Headers alone score 0.05-0.27 and are not the cause.
+
 ## 3. Defects found and fixed this session
 
 **Flag-only Stage I detections fell through to ALLOW.** `invisible_text` and
@@ -341,6 +417,51 @@ Latency: Stage I 0.74 ms mean. The Stage II and Stage I+II means (19.85 ms and
 14.29 ms) are **not comparable** - the stage2 run shared CPU with the
 per-source job. The confusion matrices are deterministic and unaffected; only
 the timings are.
+
+### The same ablation out of distribution - and it reverses
+
+`reports/ood_stage{1,2,12}.json`, built by `eval/build_ood_set.py`:
+1,000 Gandalf attacks plus 8,579 benign rows from BANKING77 test and CLINC150
+test, none of it in any training split. Gandalf alone carries no benign rows,
+so on its own it yields recall with no false-positive cost - which is the half
+of the trade-off the in-distribution run said was the problem. Pairing them
+makes the arms comparable on both axes.
+
+| Config | Gandalf recall | Benign FPR | False positives |
+|---|---|---|---|
+| Stage I only | 0.3200 | 0.0001 | 1 of 8,579 |
+| Stage II only | 0.8340 | 0.0300 | 257 |
+| Stage I + II | **0.8530** | 0.0300 | 257 |
+
+**Stage I adds +19 attacks caught for zero additional false positives.** The
+false-alarm counts are identical between the two arms - 82 BANKING77, 175
+CLINC150 - so Stage I's single false positive was already one of Stage II's.
+
+Set against the in-distribution result, Stage I's contribution is:
+
+| Corpus | Stage I adds |
+|---|---|
+| Sealed split (trained-on distribution) | +1 catch, +17 false positives |
+| Gandalf (unseen, human adversarial) | **+19 catches, +0 false positives** |
+
+This settles the architecture question, and in the opposite direction from the
+sealed-split run. The earlier "Stage I is net-negative" finding holds only
+where Stage II is at its ceiling - 99.29% on the corpus it trained on, with
+nothing left for a second detector to add. Where Stage II is weak, which is
+the deployment-relevant case, Stage I recovers 1.9 points of recall for free.
+Stage I alone also jumps from 5.80% in distribution to 32.00% on Gandalf, at a
+false-positive rate of 0.01%: human "ignore previous instructions" phrasings
+are exactly what 61 regex rules are built for.
+
+Report both. One number without the other misleads in whichever direction is
+quoted, and the pair is the actual finding: **the value of a cheap
+deterministic layer is inversely related to how well the learned layer already
+covers the distribution.** That is a claim about defence design, not about this
+corpus.
+
+Two consistency checks passed on the way: 0.8530 reproduces the previously
+reported Gandalf detection of 85.3%, and the per-source FPRs reproduce 2.66%
+BANKING77 and 3.18% CLINC150 exactly.
 
 ### Per-source breakdown, Stage I + II
 
