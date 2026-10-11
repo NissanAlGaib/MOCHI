@@ -19,7 +19,13 @@ services:
     build: .
     image: mochi-gateway:latest
     ports:
-      - "127.0.0.1:8000:8000"
+      # Published port is configurable because 8000 is often already taken by a
+      # gateway running on the host - during evaluation one is usually there,
+      # and the clash is confusing: `docker compose up` fails to bind while
+      # curl http://127.0.0.1:8000/health still answers, from the host process.
+      # A health check that passes against the wrong gateway is worse than one
+      # that fails. Override with MOCHI_PUBLISH_PORT=8001.
+      - "127.0.0.1:${MOCHI_PUBLISH_PORT:-8000}:8000"
     env_file:
       - .env
     environment:

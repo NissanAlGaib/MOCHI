@@ -85,5 +85,15 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
     CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).status==200 else 1)"
 
-CMD ["python", "-m", "uvicorn", "mochi.gateway.app:app", \
-     "--host", "0.0.0.0", "--port", "8000"]
+# Run through the project's own entry point, not `python -m uvicorn`.
+#
+# app.py calls logging.basicConfig() inside main(), so invoking uvicorn
+# directly bypasses it: the root logger keeps no handler and every
+# mochi.gateway record is discarded. Verified by running this image -
+# uvicorn's own lines appeared while "Stage II enabled" never did.
+#
+# What that costs is not just a banner. The startup warning for an undeclared
+# MOCHI_SYSTEM_PROMPT_FILE is the message that explains why a gateway is
+# refusing everything, and it was being swallowed. main() reads MOCHI_HOST and
+# MOCHI_PORT from the environment, both set above, so the bind is unchanged.
+CMD ["python", "-m", "mochi.gateway.app"]
