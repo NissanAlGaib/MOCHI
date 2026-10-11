@@ -90,6 +90,23 @@ class ImageExtraction:
     """Lines only the equalized pass read. Low-contrast content, which is the
     case a reviewer cannot catch by looking."""
 
+    metadata_text: list[str] = field(default_factory=list)
+    """Text from PNG text chunks and EXIF, as ``"field: value"``.
+
+    Not an attack on the model: a vision encoder reads pixels and never parses
+    metadata. Verified - llava:7b described an image whose Comment field held
+    an injection without mentioning it.
+
+    It is an attack on the *pipeline*. Document-processing applications
+    routinely lift captions, descriptions and EXIF comments into the prompt,
+    and at that point the payload is text the model does obey. ``file_extract``
+    already raises FILE_METADATA_EXTRACTED for the same reason; images were
+    simply not covered.
+
+    Trailing bytes after the PNG terminator are deliberately not collected.
+    Nothing in the chain surfaces them, and scanning arbitrary trailing data
+    for text would invent findings rather than report them."""
+
     flags: list[str] = field(default_factory=list)
     ocr_ran: bool = False
     """False when OCR was unavailable or the input was not a usable image -
@@ -98,7 +115,8 @@ class ImageExtraction:
     @property
     def all_segments(self) -> list[str]:
         """Everything worth scanning, visible content first."""
-        return [s for s in [self.visible_text, *self.hidden_text] if s and s.strip()]
+        return [s for s in [self.visible_text, *self.hidden_text,
+                            *self.metadata_text] if s and s.strip()]
 
     @property
     def text(self) -> str:
@@ -191,6 +209,51 @@ def _is_new(box: tuple[float, float, float, float], plain: list) -> bool:
     return not any(_overlap(box, other) >= SAME_REGION_IOU for other, _ in plain)
 
 
+#: Metadata fields worth reading: free text an author controls. Dimensions,
+#: DPI and colour profiles carry no instruction and are skipped.
+TEXT_METADATA_KEYS = frozenset({
+    "comment", "description", "title", "author", "artist", "copyright",
+    "software", "usercomment", "imagedescription", "xmlcom", "parameters",
+})
+
+#: A single field longer than this is a payload, not a caption. Truncated
+#: rather than dropped - the opening is what a detector needs.
+MAX_METADATA_CHARS = 4000
+
+
+def _metadata_text(image) -> list[str]:
+    """Free-text metadata fields, as ``"field: value"``.
+
+    Reads PNG text chunks (``image.info``) and EXIF. Binary and numeric
+    fields are skipped: they carry no instruction and would only give the
+    detector noise to score.
+    """
+    found: list[str] = []
+
+    def take(key, value) -> None:
+        if str(key).lower() not in TEXT_METADATA_KEYS:
+            return
+        if isinstance(value, bytes):
+            value = value.decode("utf-8", errors="ignore")
+        if not isinstance(value, str):
+            return
+        value = value.strip()
+        if value:
+            found.append(f"{key}: {value[:MAX_METADATA_CHARS]}")
+
+    for key, value in (getattr(image, "info", None) or {}).items():
+        take(key, value)
+
+    try:
+        from PIL import ExifTags
+
+        for tag, value in (image.getexif() or {}).items():
+            take(ExifTags.TAGS.get(tag, tag), value)
+    except Exception:  # noqa: BLE001 - no EXIF, or an unreadable block
+        pass
+    return found
+
+
 def extract_image(data: bytes) -> ImageExtraction:
     """Read an image twice - as-is and equalized - and return both findings."""
     out = ImageExtraction()
@@ -225,6 +288,9 @@ def extract_image(data: bytes) -> ImageExtraction:
 
     out.visible_text = "\n".join(text for _box, text in plain)
     out.hidden_text = hidden
+    out.metadata_text = _metadata_text(image)
+    if out.metadata_text:
+        out.add_flag(F.IMAGE_METADATA_EXTRACTED)
     if plain or hidden:
         out.add_flag(F.IMAGE_TEXT_EXTRACTED)
     if hidden:

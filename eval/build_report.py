@@ -43,7 +43,8 @@ BAND = "FFEAEEEE"
 #: sweep and a two-arm simulation have different columns.
 SOURCES = [
     ("generated 100", REPORTS / "simulation_runs.jsonl", "sim"),
-    ("images vs llava", REPORTS / "image_runs.jsonl", "image"),
+    ("images vs llava (visible)", REPORTS / "image_runs.jsonl", "image"),
+    ("images vs llava (concealed)", REPORTS / "image_runs_concealed.jsonl", "image"),
     ("gandalf 300", REPORTS / "gandalf_runs.jsonl", "sim"),
     ("gandalf detection (e5-fine-tuned)", REPORTS / "gandalf_detection.jsonl", "detect"),
     ("gandalf detection (e5-banking)", REPORTS / "gandalf_detection_BANKING.jsonl", "detect"),

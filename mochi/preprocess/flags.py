@@ -78,6 +78,10 @@ class NormalizationFlag(StrEnum):
     # reasoning as ZERO_WIDTH_CHARS_DETECTED - content placed where a human
     # cannot see it but a model can is not an accident.
     IMAGE_HIDDEN_TEXT_DETECTED = "image_hidden_text_detected"
+    # Text from PNG text chunks or EXIF. The model never reads these - a
+    # vision encoder parses pixels - but applications that lift captions and
+    # descriptions into the prompt turn them into text the model does obey.
+    IMAGE_METADATA_EXTRACTED = "image_metadata_extracted"
 
     # --- Resource guards ---
     DECODE_DEPTH_EXCEEDED = "decode_depth_exceeded"
