@@ -212,6 +212,7 @@ async def inspect_request(payload: ChatCompletionRequest,
         record,
         block_severity=settings.block_severity,
         enable_stage1=settings.enable_stage1,
+        read_images=settings.read_images,
         enable_stage2=settings.enable_stage2 and stage2 is not None,
         stage2=stage2,
         enable_tagalog_translation=(

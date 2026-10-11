@@ -123,18 +123,56 @@ class Segment:
         return self.normalized.scannable
 
 
-def _text_from_content(content: Any) -> str:
-    """Flatten message content, which may be a string or multimodal blocks."""
+def _text_from_content(content: Any, *,
+                       read_images: bool = False) -> tuple[str, list[str]]:
+    """Flatten message content, which may be a string or multimodal blocks.
+
+    Returns ``(text, flags)``. With ``read_images``, image blocks are OCR'd
+    and the recovered text joins the rest; without it they are dropped, and a
+    payload rendered as pixels is invisible to every downstream stage.
+
+    **This is the function detection actually reads.**
+    ``ChatCompletionRequest.inspectable_text`` looks similar and feeds only
+    telemetry, so wiring OCR there alone changes what gets logged and nothing
+    about what gets caught - which is exactly the mistake that produced a
+    run where every image attack sailed through while the extractor worked
+    perfectly in isolation.
+    """
     if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts = [
-            block["text"]
-            for block in content
-            if isinstance(block, dict) and isinstance(block.get("text"), str)
-        ]
-        return "\n".join(parts)
-    return ""
+        return content, []
+    if not isinstance(content, list):
+        return "", []
+
+    parts: list[str] = []
+    flags: list[str] = []
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        if isinstance(block.get("text"), str):
+            parts.append(block["text"])
+        elif read_images:
+            text, found = _image_block(block)
+            if text:
+                parts.append(text)
+            for flag in found:
+                if flag not in flags:
+                    flags.append(flag)
+    return "\n".join(parts), flags
+
+
+def _image_block(block: dict) -> tuple[str, list[str]]:
+    """OCR one image content block. Imported lazily; failures yield nothing.
+
+    A malformed image must not take down a request that may be legitimate,
+    and a deployment that never enables OCR should never load the runtime.
+    """
+    try:
+        from mochi.preprocess.image_extract import extract_from_content_block
+
+        result = extract_from_content_block(block)
+        return result.text, list(result.flags)
+    except Exception:  # noqa: BLE001 - OCR absent, broken, or fed a bad image
+        return "", []
 
 
 def segment_tagged(context: Any) -> list[Segment]:
@@ -145,7 +183,8 @@ def segment_tagged(context: Any) -> list[Segment]:
     ]
 
 
-def segment_messages(messages: list[Any]) -> list[Segment]:
+def segment_messages(messages: list[Any], *,
+                     read_images: bool = False) -> list[Segment]:
     """Derive segments from chat message roles when no ``context`` is supplied.
 
     This is the zero-integration fallback. It is coarser than explicit tagging -
@@ -156,20 +195,22 @@ def segment_messages(messages: list[Any]) -> list[Segment]:
     segments: list[Segment] = []
     for index, message in enumerate(messages):
         role = (getattr(message, "role", "") or "").lower()
-        text = _text_from_content(getattr(message, "content", None))
+        text, image_flags = _text_from_content(
+            getattr(message, "content", None), read_images=read_images
+        )
         if not text.strip():
             continue
-        segments.append(
-            Segment(
-                source_tag=ROLE_TO_SOURCE.get(role, SourceTag.USER_INPUT),
-                origin=f"messages[{index}]",
-                raw_text=text,
-            )
+        segment = Segment(
+            source_tag=ROLE_TO_SOURCE.get(role, SourceTag.USER_INPUT),
+            origin=f"messages[{index}]",
+            raw_text=text,
         )
+        segment.image_flags = image_flags
+        segments.append(segment)
     return segments
 
 
-def build_segments(request: Any) -> list[Segment]:
+def build_segments(request: Any, *, read_images: bool = False) -> list[Segment]:
     """Segment a parsed chat-completion request and preprocess each piece.
 
     An explicit ``context`` takes precedence over message-role inference. That
@@ -182,10 +223,17 @@ def build_segments(request: Any) -> list[Segment]:
     if context is not None:
         segments = segment_tagged(context)
     else:
-        segments = segment_messages(getattr(request, "messages", []) or [])
+        segments = segment_messages(getattr(request, "messages", []) or [],
+                                    read_images=read_images)
 
     for segment in segments:
         segment.normalized = preprocess_segment(
             segment.raw_text, source_tag=segment.source_tag
         )
+        # OCR flags are raised before normalization runs, so merge them in
+        # rather than let them be overwritten: an operator needs to see that
+        # text came out of an image, and that some of it was concealed.
+        for flag in getattr(segment, "image_flags", ()) or ():
+            if flag not in segment.normalized.flags:
+                segment.normalized.flags.append(flag)
     return segments

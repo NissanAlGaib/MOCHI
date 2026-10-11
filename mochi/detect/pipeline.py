@@ -177,6 +177,7 @@ def inspect(request, record: TelemetryRecord, *,
             stage2: Stage2Detector | None = None,
             enable_tagalog_translation: bool = False,
             code_switch: CodeSwitchTranslator | None = None,
+            read_images: bool = False,
             accumulator: RiskAccumulator | None = None) -> InspectionResult:
     """Segment, preprocess, and run the detection cascade.
 
@@ -194,7 +195,7 @@ def inspect(request, record: TelemetryRecord, *,
     band. Enforcement lives in :mod:`mochi.mitigate`, not here - detection
     decides *what* a request is, mitigation decides what to do about it.
     """
-    segments = build_segments(request)
+    segments = build_segments(request, read_images=read_images)
 
     # --- Tagalog content filter (opt-in) ---
     # Runs before Stage I, not after: Segment.scannable reads
