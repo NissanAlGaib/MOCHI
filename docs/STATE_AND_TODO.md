@@ -268,8 +268,35 @@ in.
 corpus change. Order matters: token association -> feature table -> Track A ->
 comparison. Conclusions do not change, only reproducibility.
 
-**4.13 Docker packaging** (Phase 14). The deliverable behind the adviser's
-plug-and-play question. See `NEXT_STEPS.md` Part A.
+**4.13 Docker packaging** (Phase 14) - **files written, build never run.**
+The deliverable behind the adviser's plug-and-play question. See
+`NEXT_STEPS.md` Part A.
+
+`Dockerfile`, `docker-compose.yml` and `.dockerignore` exist as of commit
+`2af40d5`, written by reading the code rather than by building. Docker is not
+installed on this machine and the disk is at 90% (97 GB free), so nothing has
+been verified. **The one remaining step is a single `docker compose up
+--build` from the repo root**, after installing Docker Desktop - which needs a
+reboot and WSL2, so it was not done unattended.
+
+What to watch on that first build:
+
+- the apt layer (`libgomp1`, `libglib2.0-0`, `libgl1`). These are there
+  because onnxruntime links OpenMP and RapidOCR pulls
+  opencv-python-headless. A missing one fails as an ImportError at request
+  time, not at build time, so test an image request before believing it works.
+- bind-mount permissions. The container runs as uid 10001 against host-owned
+  `logs/`. Docker Desktop is permissive; a Linux host is not.
+- a restart loop means the `models/e5-fine-tuned` mount is wrong, not that
+  the gateway is broken. Stage II is loaded eagerly, so a bad mount exits
+  before traffic is served. `docker compose logs gateway`.
+
+Two things worth knowing about the design, both verified against source:
+`training/` is a runtime dependency (`stage2_semantic.py:274` imports
+`training.model`), and the image installs the **CPU** torch wheel explicitly
+because requirements.txt deliberately omits torch while the image ships
+`MOCHI_ENABLE_STAGE2=true`. Without that the container would run Stage I
+alone at 5.9% recall and still report healthy.
 
 ---
 
