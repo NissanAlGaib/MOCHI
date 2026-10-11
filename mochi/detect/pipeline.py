@@ -7,6 +7,7 @@ points in :func:`inspect` in Phases 8 and 9.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from mochi.detect.segments import InjectionClass, Segment, TrustLevel, build_segments
@@ -125,6 +126,21 @@ class InspectionResult:
     def semantic_score(self) -> float | None:
         top = self.top_semantic
         return top[1].score if top else None
+
+    def semantic_score_for(self, segments: Sequence[Segment]) -> float | None:
+        """Highest Stage II score among ``segments`` only.
+
+        For attributing a verdict to the score that caused it. ``semantic_score``
+        is the maximum across *every* segment, including ones enforcement
+        exempted, so the two differ exactly when the loudest segment is not the
+        guilty one - which is the case that makes a log misleading. Compared by
+        identity, because the same Segment objects flow through inspection and
+        enforcement and two segments can carry equal text.
+        """
+        chosen = {id(segment) for segment in segments}
+        scores = [result.score for segment, result in self.stage2
+                  if id(segment) in chosen and result.ran]
+        return max(scores) if scores else None
 
     @property
     def stage2_blocked(self) -> bool:
