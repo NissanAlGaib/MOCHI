@@ -496,21 +496,37 @@ hardest case. `taglish_heldout` scoring 1.0000 recall means nothing here: only
 91 of its 300 rows are in test, the rest having leaked into training (4.2), and
 38 malicious rows cannot support a claim.
 
-**4.5 Stage II thresholds - sweep DONE, decision OPEN.** `reports/thresholds.json`
-exists and holds candidates, histogram and bands, so the earlier note that the
-run was interrupted is wrong. Config still uses the pre-study 0.45 / 0.55.
+**4.5 Stage II thresholds - DECIDED: keep 0.45 / 0.55.** Decision taken
+2026-10-11. Nothing measured has argued for moving them, and the sweep's
+alternatives buy less than they cost.
 
-The sweep's in-distribution candidates:
+What the evidence says, for the write-up:
 
-| Target | Threshold | F1 | FPR | Recall |
+| Operating point | F1 | FPR | Recall | Scope |
 |---|---|---|---|---|
-| FPR <= 0.02 | 0.2558 | 0.9840 | 2.04% | 99.41% |
-| FPR <= 0.01 | 0.5192 | 0.9855 | 1.01% | 98.42% |
+| **0.45 / 0.55 (kept)** | 0.9891 | 0.0115 | 0.9930 | sealed split, gateway |
+| sweep, FPR <= 0.02 | 0.9840 | 0.0204 | 0.9941 | in-distribution, classifier |
+| sweep, FPR <= 0.01 | 0.9855 | 0.0101 | 0.9842 | in-distribution, classifier |
 
-Do not read those as deployment numbers. They are in-distribution, and the
-out-of-distribution curve is **not** flat the way this one is: 0.55 -> 0.85
-trades 43 false positives for 116 missed attacks, roughly 1:2.7. What remains
-is a judgement call with evidence behind it, not more measurement.
+The deployed bands beat both sweep candidates on F1 - 0.9891 against 0.9855
+and 0.9840 - so the sweep offers no better point to move to. It also measured
+the classifier alone on a single threshold, while the gateway runs two bands
+plus Stage I, which is why the numbers are not directly comparable and why the
+sweep should not be quoted as a deployment figure.
+
+The out-of-distribution curve is the real argument for not touching them:
+0.55 -> 0.85 trades 43 false positives for 116 missed attacks, roughly 1:2.7
+against. Raising the bar costs more detection than it saves in false alarms.
+
+Two caveats worth recording rather than acting on. The aggregate FPR of 1.15%
+misses the <1% target, but that is a *data* problem, not a threshold one -
+excluding jayavibhav it is 0.75%, and `e5-banking` reaches 0.13% on BANKING77
+at the same thresholds. And the long-document work (section 2) shows FPR is
+length-dependent, 0.0% in the 2-13 KB band against 9.0% at 50 KB, so a single
+global threshold is a simplification. A length-aware per-window threshold is
+derivable from the independence result if that 9% ever becomes a problem; it is
+not one now, and a fixed, documented threshold is easier to defend than a
+tuned one.
 
 **4.6 Utility damage from SANITIZE - DONE.** `eval/utility_run.py`, results in
 `reports/utility_runs.jsonl`. Nine document/payload pairs: eight answered with
