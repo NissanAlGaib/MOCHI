@@ -289,6 +289,26 @@ def sheet_summary(wb, sims, detects, benign, taglish, extra):
         pct(ws, 6, start, "0.00%")
         ws.append([])
 
+    comparison = extra.get("comparison")
+    if comparison:
+        title(ws, "Why this model — every candidate on the same sealed rows")
+        head(ws, ["model", "track", "family", "F1", "recall", "FPR",
+                  "parameters", "recall @ FPR<=1%"])
+        start = ws.max_row + 1
+        # Sorted by F1 rather than left in run order, so the table argues the
+        # choice instead of just listing candidates.
+        for row in sorted(comparison,
+                          key=lambda r: -(r["results"]["max F1"]["f1"])):
+            best = row["results"]["max F1"]
+            budget = row["results"].get("FPR<=0.01", {})
+            ws.append([row["model"], row["track"], row["family"],
+                       best["f1"], best["recall"], best["fpr"],
+                       row["parameters"], budget.get("recall")])
+        for col in (4, 5, 8):
+            pct(ws, col, start)
+        pct(ws, 6, start, "0.00%")
+        ws.append([])
+
     contamination = extra.get("taglish_contamination")
     if contamination:
         title(ws, "Taglish held-out set — what the contamination was worth")
@@ -343,6 +363,16 @@ def sheet_summary(wb, sims, detects, benign, taglish, extra):
         "e5-banking is a retrained checkpoint, not the shipped model. It "
         "trades ~5pp of detection for a large drop in false positives; the "
         "choice is a threat-model decision, not a measurement.",
+        "The model comparison is the case for the transformer, and the "
+        "false-positive budget column is where it is made. At F1 the classical "
+        "models look merely worse; held to a 1% false-positive rate they "
+        "collapse — random forest recovers 49.9% of attacks against E5's "
+        "98.6%. A gateway has to run at a low false-positive rate, so that "
+        "column is the operating point that matters.",
+        "The two recurrent baselines are the honest caveat to that. biGRU "
+        "reaches F1 0.9703 with a ninth of the parameters and roughly half the "
+        "CPU latency. The transformer wins, but not by the margin its size "
+        "suggests.",
         "The sealed-split rows are the gateway's verdict on held-out rows of "
         "the corpus Stage II trained on. They are the system-level answer to "
         "the classifier's F1, not a second opinion on unseen data — Gandalf "
@@ -613,6 +643,7 @@ def main() -> int:
         "per_source_sealed": read_json(REPORTS / "detection_stage12_per_source.json"),
         "length": read_json(REPORTS / "long_document_fpr.json"),
         "taglish_contamination": read_json(REPORTS / "taglish_contamination.json"),
+        "comparison": read_json(REPORTS / "comparison.json"),
         "utility": read_jsonl(REPORTS / "utility_runs.jsonl"),
     }
 

@@ -578,14 +578,59 @@ records none.
 over-attributes to whichever segment scored highest. Regenerating them is part
 of 4.12.
 
-**4.11 Workbook needs rebuilding** with the current numbers - Gandalf detection
-and mitigation, generated corpus, corrected FPR, all under one scenario.
-`eval/export_simulation.py` has the sheets; it needs the Gandalf results folded
-in.
+**4.11 Workbook - DONE.** `eval/build_report.py`, output
+`reports/mochi_results.xlsx`. Five sheets: Summary, Ablations, Breakdown,
+Refused queries, Runs. The entry this replaces said to fold Gandalf into
+`export_simulation.py`; that script is superseded and its eleven-sheet output
+no longer exists on disk.
 
-**4.12 Regenerate stale reports.** Twelve of fourteen predate the 14 September
-corpus change. Order matters: token association -> feature table -> Track A ->
-comparison. Conclusions do not change, only reproducibility.
+Seven evaluations it was not reading are now in: the sealed-split ablation, the
+out-of-distribution ablation, the per-source breakdown, the document-length
+curve, the Taglish contamination comparison, the utility runs, and the
+two-track model comparison. Ablations is a new fifth sheet rather than more
+rows on Summary, because it answers a different question - Summary says how
+well the gateway works, Ablations says which part of it does the work.
+
+**4.12 Stale reports - DONE.** Regenerated in the documented order: feature
+table -> token association -> Track A -> comparison.
+
+**Regenerated against `data/_corpus_sept14/`, not `data/clean`.** This matters
+and is the reason the entry took judgement rather than just time.
+`banking77_benign.csv` was added to `data/clean` on 2026-10-09 for the banking
+retrain, which postdates every report being regenerated - running against
+`data/clean` today would have added 9,985 benign rows and changed the class
+balance, producing new results rather than reproductions. The staged corpus is
+`data/clean` minus that one file: 85,165 rows, and + 300 sealed Taglish rows
+gives 85,465, exactly the `e5-fine-tuned` manifest total.
+
+The two-track comparison, every candidate on the same 25,549 test rows with
+thresholds tuned on the same validation split:
+
+| Model | Track | F1 | Recall | FPR | Params | Recall @ FPR<=1% |
+|---|---|---|---|---|---|---|
+| **E5 (transformer)** | B | **0.9864** | 0.9845 | 0.90% | 117.8M | **0.9856** |
+| biGRU | B | 0.9703 | 0.9621 | 1.62% | 13.0M | 0.9457 |
+| biLSTM | B | 0.9691 | 0.9641 | 1.97% | 13.3M | 0.9337 |
+| random forest | A | 0.8283 | 0.8632 | 17.01% | 4.1M | 0.4988 |
+| svm (rbf) | A | 0.7955 | 0.8619 | 23.48% | 0.3M | 0.3682 |
+| decision tree | A | 0.7940 | 0.8735 | 25.15% | 1,847 | 0.3531 |
+| svm (linear) | A | 0.6835 | 0.8772 | 53.08% | 18 | 0.1669 |
+
+**Quote the last column, not the F1 column.** At F1 the classical models look
+merely worse. Held to the 1% false-positive rate a gateway actually has to run
+at, they collapse - random forest recovers 49.9% of attacks against E5's
+98.6%. That is the case for the transformer, and it is a much stronger one
+than a 0.16 F1 gap.
+
+The honest caveat beside it: biGRU reaches 0.9703 with a ninth of the
+parameters and roughly half the CPU latency. The transformer wins, but not by
+the margin its size implies, and that belongs in the write-up rather than
+being left for a panel to notice.
+
+Not regenerated, deliberately: `audit.json`, `baseline.json`, `baselines.json`,
+`stage1.json`, `clean_*.json`, `hybrid_ablation.json`, `evasion-matrix.csv`.
+These are pre-September phases, nothing reads them, and no current result
+depends on them. Listed as superseded in `showcase/INVENTORY.md`.
 
 **4.13 Docker packaging** (Phase 14) - **done and verified.** The deliverable
 behind the adviser's plug-and-play question.
