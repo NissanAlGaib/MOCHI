@@ -53,6 +53,13 @@ from mochi.telemetry import MitigationAction
 #: session is still allowed.
 SESSION_ESCALATION_FLOOR = 0.20
 
+#: Share of a request that redaction may remove before BLOCK is the safer
+#: verdict. Chosen from measurement, not taste: across nine document/payload
+#: pairs the only answer that went wrong had 82.4% of its text removed, while
+#: every pair that answered correctly removed at most 21.6%. 0.50 sits in the
+#: gap with margin on both sides.
+MAX_REDACTION_SHARE = 0.50
+
 #: Replaces redacted content. Deliberately inert: no imperative verb, no
 #: addressee, nothing an LLM could read as an instruction. A marker like
 #: "IGNORE THE ABOVE" would itself be an injection.
@@ -482,24 +489,56 @@ def apply(request: Any, verdict: Verdict) -> Verdict:
 
     spans = [text for _, text in verdict.targets]
     total_removed = 0
+    chars_before = 0
+    chars_after = 0
 
     for message in getattr(request, "messages", []) or []:
         content = message.content
         if isinstance(content, str):
+            chars_before += len(content)
             new_content, removed = _redact(content, spans)
             if removed:
                 message.content = new_content
                 total_removed += removed
+            chars_after += len(message.content)
         elif isinstance(content, list):
             for block in content:
                 if isinstance(block, dict) and isinstance(block.get("text"), str):
+                    chars_before += len(block["text"])
                     new_text, removed = _redact(block["text"], spans)
                     if removed:
                         block["text"] = new_text
                         total_removed += removed
+                    chars_after += len(block["text"])
 
     verdict.spans_removed = total_removed
     verdict.redacted_origins = sorted({segment.origin for segment, _ in verdict.targets})
+
+    # Redaction that guts the document is worse than refusing it. Measured on
+    # nine document/payload pairs: eight were answered with every fact intact,
+    # and the one failure was not a degraded summary but a fabricated one -
+    # asked to summarise a customer record stripped of 82% of its text, the
+    # model invented a customer, an account number and a balance that appeared
+    # nowhere in the document. A refusal is visible to the operator; a
+    # confident fabrication about a banking customer is not.
+    #
+    # The threshold separates the cases cleanly: the failure removed 82.4%,
+    # while every pair that answered correctly removed at most 21.6% - and
+    # that included the same payload against a longer document, which had
+    # enough surrounding context to absorb it. Volume relative to document
+    # length is the risk, not redaction itself.
+    share = (chars_before - chars_after) / chars_before if chars_before else 0.0
+    if total_removed and share > MAX_REDACTION_SHARE:
+        verdict.decision = Decision.BLOCK
+        verdict.escalated = True
+        verdict.reason = (
+            f"Request blocked by MOCHI: removing the injected content would "
+            f"have stripped {share:.0%} of the request, leaving too little "
+            f"context to answer from. Refused rather than forwarded, because "
+            f"a model asked to summarise a gutted document tends to invent "
+            f"what is missing."
+        )
+        return verdict
 
     if total_removed == 0:
         verdict.decision = Decision.BLOCK
