@@ -258,9 +258,98 @@ The idea is sound for a different system - a RAG or agent pipeline where the
 dominant threat is indirect and the user is a victim rather than a suspect.
 This is a chat assistant where the user is the attack surface.
 
-**4.4 End-to-end on the sealed test split.** `eval/run_detection.py --config
-stage12` has never been run; no `stage12` report exists. Converts "the
-classifier scores F1 0.9856" into "the gateway stops X%". ~1.5 h.
+**4.4 End-to-end on the sealed test split - DONE.** Reports:
+`reports/detection_stage{1,2,12}_sealed.json` and
+`detection_stage12_per_source.json`. This converts "the classifier scores
+F1 0.9856" into "the gateway stops 99.30%".
+
+The split was reconstructed from the manifest, not drawn fresh. The corpus
+directory the splitter used is gone, but the manifest names its six source
+files and all six are unchanged since before training. The reconstruction is
+provably the same split: the six files hold exactly 85,465 rows, matching
+41,879 + 17,947 + 25,639, and the 11,156 malicious rows match the threshold
+sweep's `tp + fn` exactly.
+
+One row was excluded. `"Explain Schrodinger's wave equation."` appears in both
+`promptshield_train.csv` and `taglish_generated.csv`, and **the splitter split
+rows rather than unique texts**, so one copy landed in test and another in
+train. It is 1 benign row in 25,639 and does not move any metric. The
+mechanism is what matters: it would bite harder in a corpus with heavier
+duplication, and `jayavibhav.csv` alone is 40,000 of the 85,465 rows. Final
+sealed set: **25,638 rows, 11,156 malicious / 14,482 benign.**
+
+Reproduce it with `python eval/build_sealed_test.py`, which verifies the row
+counts against the manifest and refuses to include a row the model has seen.
+It writes to `data/splits/`, **not** `data/sealed/` - that directory carries a
+contract (nothing in it may appear in `data/clean/`) and this file is a subset
+of the corpus by construction, so writing it there fails
+`tests/test_sealed_data.py` with 25,547 overlapping rows. It did, and the test
+was right.
+
+### The ablation, all three arms on the identical split
+
+| Config | TP | FP | FN | Recall | FPR | F1 |
+|---|---|---|---|---|---|---|
+| Stage I only | 647 | 19 | 10,509 | 0.0580 | 0.0013 | 0.1095 |
+| Stage II only | 11,077 | 150 | 79 | 0.9929 | 0.0104 | **0.9898** |
+| Stage I + II | 11,078 | 167 | 78 | 0.9930 | 0.0115 | 0.9891 |
+
+Stage I alone measures **5.80%**, confirming the 5.9% figure cited throughout.
+
+**Stage I is net-negative on this corpus, and that must be reported.** Adding
+it to Stage II buys **+1 attack caught for +17 false positives**, and F1 falls
+0.9898 -> 0.9891. Stage II already catches 646 of Stage I's 647 detections -
+99.85% subsumption. Stage I's catches are very nearly a subset of Stage II's,
+and its false positives are almost entirely additional.
+
+Do not over-read it in either direction. This corpus is what Stage II was
+trained on, so it is Stage II at its best - near ceiling at 99.29%, leaving
+almost nothing for a second detector to add. Out of distribution the picture
+differs: Gandalf detection is 85.3%, and a hand-probed Tagalog attack scored
+0.2971 on Stage II (below the 0.45 threshold) yet was blocked by Stage I. That
+suggests Stage I may contribute more where Stage II is weaker, but **it is
+untested at corpus scale** - the obvious follow-up is a stage1/stage2/stage12
+ablation on Gandalf, which would settle it. What is defensible today is that
+Stage I earns its place on cost and on defence-in-depth when Stage II is
+unavailable, not on added recall in distribution.
+
+Latency: Stage I 0.74 ms mean. The Stage II and Stage I+II means (19.85 ms and
+14.29 ms) are **not comparable** - the stage2 run shared CPU with the
+per-source job. The confusion matrices are deterministic and unaffected; only
+the timings are.
+
+### Per-source breakdown, Stage I + II
+
+| Source | n | malicious | Recall | FPR | F1 |
+|---|---|---|---|---|---|
+| jayavibhav.csv | 11,934 | 5,885 | 0.9913 | 0.0172 | 0.9869 |
+| promptshield_test.csv | 6,948 | 1,967 | 0.9959 | 0.0074 | 0.9886 |
+| promptshield_train.csv | 5,671 | 2,780 | 0.9960 | 0.0042 | 0.9959 |
+| taglish_generated.csv | 706 | 358 | 0.9777 | 0.0345 | 0.9722 |
+| promptshield_validation.csv | 288 | 128 | 1.0000 | 0.0063 | 0.9961 |
+| taglish_heldout.csv | 91 | 38 | 1.0000 | 0.0189 | 0.9870 |
+
+| Subset | n | Recall | FPR | F1 |
+|---|---|---|---|---|
+| All sources | 25,638 | 0.9930 | 0.0115 | 0.9891 |
+| Excluding jayavibhav | 13,704 | 0.9949 | **0.0075** | 0.9915 |
+| PromptShield only | 12,907 | 0.9961 | 0.0062 | 0.9929 |
+| Taglish only | 797 | 0.9798 | **0.0324** | 0.9737 |
+
+Two things fall out of this.
+
+**The FPR target is met except on jayavibhav.** It supplies 104 of 167 false
+positives and 51 of 78 misses while being 47% of rows. Excluding it, FPR is
+0.75% - under the <1% target the aggregate 1.15% misses. This is independent
+support for register item D6, which already records jayavibhav's benign half as
+not application-representative. Report the aggregate as the headline and this
+as the explanation; do not quietly drop the source.
+
+**Taglish is the weakest arm** - FPR 3.24% against PromptShield's 0.62%, four
+times higher, and the lowest recall at 97.98%. The premise of the system is its
+hardest case. `taglish_heldout` scoring 1.0000 recall means nothing here: only
+91 of its 300 rows are in test, the rest having leaked into training (4.2), and
+38 malicious rows cannot support a claim.
 
 **4.5 Stage II thresholds - sweep DONE, decision OPEN.** `reports/thresholds.json`
 exists and holds candidates, histogram and bands, so the earlier note that the

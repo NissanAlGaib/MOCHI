@@ -30,7 +30,7 @@ from eval.data_loading import (  # noqa: E402
     load_directory,
 )
 from eval.metrics import ConfusionMatrix, evaluate, format_report  # noqa: E402
-from eval.predictors import get_predictor  # noqa: E402
+from eval.predictors import PREDICTORS, get_predictor  # noqa: E402
 
 #: Small built-in set so the harness is runnable before any download. NOT a
 #: benchmark - it exists to prove the pipeline end-to-end, not to produce
@@ -192,8 +192,11 @@ def main() -> int:
                         help=f"directory of dataset files (default: {DATA_DIR})")
     source.add_argument("--demo", action="store_true",
                         help="use the small built-in sample set instead of real data")
+    # Derived from PREDICTORS rather than written out, which had drifted: the
+    # predictor layer defines a "stage2" arm specifically to isolate Stage II's
+    # contribution, and a hardcoded list left it unreachable from the CLI.
     parser.add_argument("--config", default="full",
-                        choices=["baseline", "stage1", "stage12", "full"],
+                        choices=sorted(PREDICTORS),
                         help="evaluation configuration (default: full)")
     parser.add_argument("--limit", type=int, default=None,
                         help="evaluate only the first N samples")
