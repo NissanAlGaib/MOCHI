@@ -43,6 +43,7 @@ BAND = "FFEAEEEE"
 #: sweep and a two-arm simulation have different columns.
 SOURCES = [
     ("generated 100", REPORTS / "simulation_runs.jsonl", "sim"),
+    ("images vs llava", REPORTS / "image_runs.jsonl", "image"),
     ("gandalf 300", REPORTS / "gandalf_runs.jsonl", "sim"),
     ("gandalf detection (e5-fine-tuned)", REPORTS / "gandalf_detection.jsonl", "detect"),
     ("gandalf detection (e5-banking)", REPORTS / "gandalf_detection_BANKING.jsonl", "detect"),
@@ -62,6 +63,20 @@ def read_jsonl(path: Path) -> list[dict]:
         return []
     with path.open(encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
+
+
+def normalise_image_runs(rows: list[dict]) -> list[dict]:
+    """Give image runs the fields the shared summariser expects.
+
+    ``eval/image_simulation.py`` writes its own row shape - there is one
+    target, and placement is always the image - so it omits ``target_name``
+    and ``placement``. Filling them here keeps one summariser for every
+    corpus rather than a second code path that could drift from the first.
+    """
+    for row in rows:
+        row.setdefault("target_name", "LLaVA 7B (vision)")
+        row.setdefault("placement", f"image/{row.get('variant', 'visible')}")
+    return rows
 
 
 def intent_name(dataset: str, raw: str) -> str:
@@ -325,6 +340,9 @@ def main() -> int:
 
     sims = {label: read_jsonl(path) for label, path, kind in SOURCES
             if kind == "sim" and read_jsonl(path)}
+    sims.update({label: normalise_image_runs(read_jsonl(path))
+                 for label, path, kind in SOURCES
+                 if kind == "image" and read_jsonl(path)})
     detects = {label: read_jsonl(path) for label, path, kind in SOURCES
                if kind == "detect" and read_jsonl(path)}
     benign = {label: read_jsonl(path) for label, path in BENIGN
