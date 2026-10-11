@@ -58,6 +58,46 @@ INTENTS = {
     "banking77": REPO / "data" / "external" / "banking77_intents.json",
 }
 
+#: Stage ablation arms, in the order they are argued: the cheap layer alone,
+#: the learned layer alone, then the cascade. ``sealed`` is the corpus Stage II
+#: trained on (held-out rows of it); ``ood`` is Gandalf plus benign traffic
+#: that no split contains.
+ABLATION = [
+    ("Stage I only", "stage1"),
+    ("Stage II only", "stage2"),
+    ("Stage I + II", "stage12"),
+]
+
+
+def read_json(path: Path):
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def rates(counts: dict) -> dict:
+    """Recall, FPR and F1 from a confusion dict, NaN where undefined.
+
+    A corpus with no benign rows has no false-positive rate; reporting 0.0
+    there would read as a perfect score rather than an absent measurement.
+    """
+    tp, fp, tn, fn = (counts.get(k, 0) for k in ("tp", "fp", "tn", "fn"))
+    nan = float("nan")
+    recall = tp / (tp + fn) if tp + fn else nan
+    fpr = fp / (fp + tn) if fp + tn else nan
+    precision = tp / (tp + fp) if tp + fp else nan
+    f1 = nan
+    if precision == precision and recall == recall and precision + recall:
+        f1 = 2 * precision * recall / (precision + recall)
+    return {"recall": recall, "fpr": fpr, "precision": precision, "f1": f1,
+            "tp": tp, "fp": fp, "tn": tn, "fn": fn,
+            "n": tp + fp + tn + fn}
+
+
+def blank(value):
+    """Excel shows NaN as an error; an absent measurement should be empty."""
+    return None if isinstance(value, float) and value != value else value
+
 
 def read_jsonl(path: Path) -> list[dict]:
     if not path.exists():
@@ -173,7 +213,7 @@ def pct(ws, col, first=2, fmt="0.0%"):
 # --- sheets ----------------------------------------------------------------
 
 
-def sheet_summary(wb, sims, detects, benign, taglish):
+def sheet_summary(wb, sims, detects, benign, taglish, extra):
     from openpyxl.styles import Alignment, Font
     ws = wb.create_sheet("Summary")
     ws.column_dimensions["A"].width = 34
@@ -222,6 +262,58 @@ def sheet_summary(wb, sims, detects, benign, taglish):
         pct(ws, 5, start, "0.00%")
         ws.append([])
 
+    sealed = extra.get("sealed", {}).get("stage12")
+    if sealed:
+        m = sealed["metrics"]
+        title(ws, "Detection on the sealed test split — the gateway's own verdict")
+        head(ws, ["corpus", "rows", "attacks", "stopped", "recall", "FPR", "F1"])
+        start = ws.max_row + 1
+        ws.append(["held-out rows of the training corpus", sealed["n_samples"],
+                   m["tp"] + m["fn"], m["tp"], m["recall"],
+                   m["false_positive_rate"], m["f1"]])
+        per = extra.get("per_source_sealed")
+        if per:
+            no_jaya = [s for s in per["per_source"] if "jayavibhav" not in s]
+            agg = rates({k: sum(per["per_source"][s][k] for s in no_jaya)
+                         for k in ("tp", "fp", "tn", "fn")})
+            ws.append(["excluding jayavibhav", agg["n"], agg["tp"] + agg["fn"],
+                       agg["tp"], agg["recall"], agg["fpr"], agg["f1"]])
+            tg = [s for s in per["per_source"] if "taglish" in s]
+            if tg:
+                agg = rates({k: sum(per["per_source"][s][k] for s in tg)
+                             for k in ("tp", "fp", "tn", "fn")})
+                ws.append(["Taglish rows only", agg["n"], agg["tp"] + agg["fn"],
+                           agg["tp"], agg["recall"], agg["fpr"], agg["f1"]])
+        for col in (5, 7):
+            pct(ws, col, start)
+        pct(ws, 6, start, "0.00%")
+        ws.append([])
+
+    contamination = extra.get("taglish_contamination")
+    if contamination:
+        title(ws, "Taglish held-out set — what the contamination was worth")
+        head(ws, ["weights", "subset", "rows", "recall", "FPR", "F1"])
+        start = ws.max_row + 1
+        for row in contamination:
+            ws.append([row["model"], row["subset"], row["n"],
+                       blank(row["recall"]), blank(row["fpr"]), blank(row["f1"])])
+        for col in (4, 6):
+            pct(ws, col, start)
+        pct(ws, 5, start, "0.00%")
+        ws.append([])
+
+    utility = extra.get("utility")
+    if utility:
+        title(ws, "Utility — does redaction break the answer the user came for?")
+        head(ws, ["document", "payload", "facts kept", "of", "outcome"])
+        for row in utility:
+            outcome = ("blocked" if row["sanitized_blocked"]
+                       else ("lost " + ", ".join(row["lost"]) if row["lost"]
+                             else "intact"))
+            ws.append([row["document"], row["payload"], row["facts_sanitized"],
+                       row["facts_clean"], outcome])
+        ws.append([])
+
     if taglish:
         title(ws, "Taglish ablation — 250 unseen code-switched samples")
         head(ws, ["arm", "recall", "FPR"])
@@ -251,12 +343,173 @@ def sheet_summary(wb, sims, detects, benign, taglish):
         "e5-banking is a retrained checkpoint, not the shipped model. It "
         "trades ~5pp of detection for a large drop in false positives; the "
         "choice is a threat-model decision, not a measurement.",
+        "The sealed-split rows are the gateway's verdict on held-out rows of "
+        "the corpus Stage II trained on. They are the system-level answer to "
+        "the classifier's F1, not a second opinion on unseen data — Gandalf "
+        "is that, and it scores 85.3% rather than 99.3%.",
+        "The Taglish held-out comparison shows the model is not memorising "
+        "that set: recall is identical on the rows e5-fine-tuned trained on "
+        "and the rows it did not. It does NOT show the model handles Taglish "
+        "as native speakers write it. The set was drawn alongside the "
+        "synthetic generated data, so it may sit in the same distribution, "
+        "and native-speaker validation remains outstanding.",
+        "e5-banking never saw any of the 300 Taglish rows, so its line is the "
+        "clean measurement — no subsetting and no memorisation caveat.",
+        "In the utility table, 'blocked' is the intended outcome, not a "
+        "failure. That document/payload pair would have had 82% of its text "
+        "redacted, and the model asked to summarise the remainder invented a "
+        "customer, an account number and a balance. Refusing is visible; a "
+        "confident fabrication about a banking customer is not.",
     ]:
         ws.append([line])
         cell = ws.cell(row=ws.max_row, column=1)
         cell.alignment = Alignment(wrap_text=True, vertical="top")
         ws.merge_cells(start_row=ws.max_row, start_column=1,
                        end_row=ws.max_row, end_column=6)
+        ws.row_dimensions[ws.max_row].height = 30
+
+
+def sheet_ablations(wb, extra):
+    """Stage ablations and the false-positive/length curve.
+
+    A fifth sheet rather than more rows on Summary, because these answer a
+    different question. Summary says how well the gateway works; this says
+    which part of it is doing the work, and under what conditions the answer
+    changes - which it does, completely, between the two corpora below.
+    """
+    from openpyxl.styles import Alignment, Font
+
+    sealed = extra.get("sealed", {})
+    ood = extra.get("ood", {})
+    length = extra.get("length")
+    per_source = extra.get("per_source_sealed")
+    if not (sealed or ood or length or per_source):
+        return
+
+    ws = wb.create_sheet("Ablations")
+    ws.column_dimensions["A"].width = 34
+    for c in "BCDEFGH":
+        ws.column_dimensions[c].width = 13
+
+    ws.append(["Which layer is doing the work?"])
+    ws.cell(row=1, column=1).font = Font(bold=True, size=15)
+    ws.append([])
+
+    if sealed:
+        title(ws, "In distribution — held-out rows of the training corpus")
+        head(ws, ["configuration", "TP", "FP", "FN", "recall", "FPR", "F1",
+                  "mean ms"])
+        start = ws.max_row + 1
+        for label, key in ABLATION:
+            report = sealed.get(key)
+            if not report:
+                continue
+            m = report["metrics"]
+            ws.append([label, m["tp"], m["fp"], m["fn"], m["recall"],
+                       m["false_positive_rate"], m["f1"],
+                       round(report["latency_ms"]["mean"], 2)])
+        for col in (5, 7):
+            pct(ws, col, start)
+        pct(ws, 6, start, "0.00%")
+        ws.append([])
+
+    if ood:
+        title(ws, "Out of distribution — Gandalf attacks plus benign traffic")
+        head(ws, ["configuration", "TP", "FP", "FN", "recall", "FPR", "F1"])
+        start = ws.max_row + 1
+        for label, key in ABLATION:
+            report = ood.get(key)
+            if not report:
+                continue
+            r = rates(report["total"])
+            ws.append([label, r["tp"], r["fp"], r["fn"], blank(r["recall"]),
+                       blank(r["fpr"]), blank(r["f1"])])
+        for col in (5, 7):
+            pct(ws, col, start)
+        pct(ws, 6, start, "0.00%")
+        ws.append([])
+
+        if ood.get("stage2") and ood.get("stage12"):
+            a, b = rates(ood["stage2"]["total"]), rates(ood["stage12"]["total"])
+            s_a = rates(sealed["stage2"]["metrics"]) if sealed.get("stage2") else None
+            s_b = rates(sealed["stage12"]["metrics"]) if sealed.get("stage12") else None
+            title(ws, "What Stage I adds on top of Stage II")
+            head(ws, ["corpus", "extra attacks caught", "extra false positives"])
+            if s_a and s_b:
+                ws.append(["in distribution (sealed split)",
+                           s_b["tp"] - s_a["tp"], s_b["fp"] - s_a["fp"]])
+            ws.append(["out of distribution (Gandalf)",
+                       b["tp"] - a["tp"], b["fp"] - a["fp"]])
+            ws.append([])
+
+    if per_source:
+        title(ws, "Per source, Stage I + II on the sealed split")
+        head(ws, ["source", "rows", "attacks", "recall", "FPR", "F1"])
+        start = ws.max_row + 1
+        items = sorted(per_source["per_source"].items(),
+                       key=lambda kv: -sum(kv[1].values()))
+        for name, counts in items:
+            r = rates(counts)
+            ws.append([name, r["n"], r["tp"] + r["fn"], blank(r["recall"]),
+                       blank(r["fpr"]), blank(r["f1"])])
+        for col in (4, 6):
+            pct(ws, col, start)
+        pct(ws, 5, start, "0.00%")
+        ws.append([])
+
+    if length:
+        rows = length["rows"]
+        title(ws, "False positives against document length — benign documents only")
+        head(ws, ["characters", "windows", "documents", "flagged", "doc FPR",
+                  "per-window FPR", "if independent", "blocked"])
+        start = ws.max_row + 1
+        for row in rows:
+            ws.append([row["target_chars"], row["windows"], row["documents"],
+                       row["flagged"], row["fpr"], row["per_window_fpr"],
+                       row["predicted_fpr"], row["block_fpr"]])
+        for col in (5, 6, 7, 8):
+            pct(ws, col, start, "0.00%")
+        ws.append([])
+
+    title(ws, "How to read this")
+    for line in [
+        "The two ablations disagree, and that is the finding. On the corpus "
+        "Stage II trained on it sits near its ceiling, so Stage I adds almost "
+        "nothing and costs false positives. On Gandalf, which no split "
+        "contains, Stage I adds attacks caught at no false-positive cost.",
+        "So Stage I is not justified by added recall in distribution. It is "
+        "justified by cost (sub-millisecond against ~14 ms), by working when "
+        "Stage II is unavailable, and by what it recovers where the learned "
+        "layer is weak.",
+        "Stage I alone measures 5.8% recall in distribution and 32.0% on "
+        "Gandalf. Human 'ignore previous instructions' phrasings are what "
+        "regex rules are for.",
+        "Gandalf carries no benign rows, so BANKING77 and CLINC150 test are "
+        "pooled in to give the arms a false-positive rate. Read recall and "
+        "FPR off that sheet, never accuracy — the class balance is 10.4%.",
+        "In the length table, window fill matters more than window count. The "
+        "two one-window rows are the controlled comparison: 200 characters "
+        "flags at 15%, a full 2,048-character window at 0%. Filling a window "
+        "with benign context suppresses the score about fiftyfold.",
+        "'If independent' is the document rate predicted from the measured "
+        "per-window rate. It tracks the observed rate closely at 16 and 32 "
+        "windows, so the compounding across windows is arithmetic rather than "
+        "mysterious — which is what makes a length-aware threshold derivable.",
+        "The sealed split's aggregate FPR misses the 1% target, but that is a "
+        "data problem rather than a threshold one: jayavibhav supplies 104 of "
+        "167 false positives, and excluding it the rate is 0.75%.",
+        "Do not compare the 'mean ms' column between the Stage II and "
+        "Stage I + II rows. Those two runs shared a CPU with another "
+        "evaluation, so the timings are not measured under equal conditions. "
+        "Stage I's sub-millisecond figure ran alone and is sound, and every "
+        "confusion-matrix number here is deterministic and unaffected. Re-run "
+        "the arms one at a time before quoting latency.",
+    ]:
+        ws.append([line])
+        cell = ws.cell(row=ws.max_row, column=1)
+        cell.alignment = Alignment(wrap_text=True, vertical="top")
+        ws.merge_cells(start_row=ws.max_row, start_column=1,
+                       end_row=ws.max_row, end_column=8)
         ws.row_dimensions[ws.max_row].height = 30
 
 
@@ -352,9 +605,21 @@ def main() -> int:
     taglish = (json.loads(taglish_path.read_text(encoding="utf-8"))
                if taglish_path.exists() else {})
 
+    extra = {
+        "sealed": {key: r for _, key in ABLATION
+                   if (r := read_json(REPORTS / f"detection_{key}_sealed.json"))},
+        "ood": {key: r for _, key in ABLATION
+                if (r := read_json(REPORTS / f"ood_{key}.json"))},
+        "per_source_sealed": read_json(REPORTS / "detection_stage12_per_source.json"),
+        "length": read_json(REPORTS / "long_document_fpr.json"),
+        "taglish_contamination": read_json(REPORTS / "taglish_contamination.json"),
+        "utility": read_jsonl(REPORTS / "utility_runs.jsonl"),
+    }
+
     wb = Workbook()
     wb.remove(wb.active)
-    sheet_summary(wb, sims, detects, benign, taglish)
+    sheet_summary(wb, sims, detects, benign, taglish, extra)
+    sheet_ablations(wb, extra)
     sheet_breakdown(wb, sims, benign)
     if benign:
         sheet_refused(wb, benign)
