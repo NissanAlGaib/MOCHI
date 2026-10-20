@@ -52,6 +52,7 @@ import binascii
 import io
 import re
 from dataclasses import dataclass, field
+from difflib import SequenceMatcher
 
 from mochi.preprocess.flags import NormalizationFlag as F
 
@@ -193,8 +194,13 @@ def decode_data_uri(value: str) -> bytes | None:
         return None
 
 
-def _ocr_lines(reader, image) -> list[tuple[tuple[float, float, float, float], str]]:
-    """``(bounding box, text)`` for each line read, confident ones only."""
+def _ocr_lines(reader, image, *, min_confidence: float = MIN_CONFIDENCE
+               ) -> list[tuple[tuple[float, float, float, float], str]]:
+    """``(bounding box, text)`` for each line read, confident ones only.
+
+    ``min_confidence`` is raised for the downsampled passes, where the default
+    admits too much. See :data:`RESCALE_MIN_CONFIDENCE`.
+    """
     import numpy as np
 
     try:
@@ -203,7 +209,7 @@ def _ocr_lines(reader, image) -> list[tuple[tuple[float, float, float, float], s
         return []
     lines = []
     for box, text, confidence in (result or []):
-        if not text or not text.strip() or float(confidence) < MIN_CONFIDENCE:
+        if not text or not text.strip() or float(confidence) < min_confidence:
             continue
         xs = [float(p[0]) for p in box]
         ys = [float(p[1]) for p in box]
@@ -225,19 +231,74 @@ def _overlap(a: tuple[float, float, float, float],
     return inter / union if union > 0 else 0.0
 
 
-def _squash(text: str) -> str:
-    """Normalise a line for comparison across resolutions.
+#: How certain OCR must be about a line read from a downsampled image.
+#:
+#: This is the gate that makes the scaling pass safe, and it is the reader's
+#: own judgement rather than a heuristic over the text. Shrinking a normal
+#: document far enough to expose a scaling attack also destroys its ordinary
+#: body text, and OCR returns confident-looking rubbish for it. Measured:
+#:
+#:     garbage from benign documents at 224    0.620 - 0.770
+#:     a real scaling payload at its target    0.967 - 0.997
+#:
+#: The gap is wide because it is not a coincidence. A scaling attack's payload
+#: is *built* to be crisply legible at the resolution the encoder uses; that
+#: is the whole mechanism. Mangled body text is not.
+#:
+#: Earlier attempts to separate the two by comparing strings failed in both
+#: directions - text garbled past recognition is, by any similarity measure,
+#: exactly as "novel" as a genuine payload.
+RESCALE_MIN_CONFIDENCE = 0.90
 
-    Downsampled OCR loses spacing and confuses glyph pairs - the same line
-    came back as ``'Ignore all previous'`` at full size and
-    ``'lgnoreallprevious'`` at 336x336. Dropping whitespace and case, and
-    folding the handful of pairs that differ only by stroke, is enough to
-    recognise one as the other without claiming they are identical.
+#: A rescaled line this similar to text already read is the same line, badly.
+#: Measured on observed pairs: garbled re-reads of text the full-resolution
+#: pass already found score 0.69-0.81 against it ('Acne Bark' against 'Acme
+#: Bank' is 0.78), while the payload of a real scaling attack scores 0.20-0.30
+#: because it is genuinely absent from the full-resolution read.
+RESCALE_NOVELTY = 0.60
+
+#: Shorter than this, a rescaled line carries no instruction and is almost
+#: certainly OCR debris. Separation is not clean by similarity alone - pure
+#: noise scores about as "novel" as a real payload, because neither resembles
+#: the cover text - so length does the work similarity cannot. The observed
+#: noise fragments run to 6-8 characters; the shortest real payload line
+#: recovered from a scaling attack was 15.
+RESCALE_MIN_CHARS = 12
+
+
+def _is_novel(line: str, against: list[str]) -> bool:
+    """Whether a rescaled line says something the full-resolution read did not.
+
+    This is the guard that stops the scaling pass manufacturing evidence, and
+    it exists because the first version did exactly that. Squashing a 1100x310
+    banner into a 224x224 square produced ``'rtemalrem?rd.m'`` - a ruin of
+    "Internal memorandum", a line already read correctly - and feeding it to
+    the scorer raised Stage II from 0.0857 to 0.6211, flipping seven verdicts
+    to BLOCK for a reason unconnected to their content.
+
+    That it flipped them is not a quirk of one string. The detector was
+    trained on obfuscation attacks, so mangled characters read as evidence of
+    obfuscation: the fragment above scores 0.4301 on its own, and appending it
+    to ordinary text lifts that text by 0.03 to 0.26. Any OCR debris reaching
+    the scorer inflates it.
+
+    So a rescaled line is kept only when it is both long enough to carry an
+    instruction and unlike anything already read. Residual risk, stated rather
+    than designed away: a long noise string would still pass both tests. The
+    aspect-ratio fix makes that far less likely than it was, and nothing here
+    makes it impossible.
     """
-    folded = text.lower()
-    for a, b in (("l", "i"), ("0", "o"), ("1", "i"), ("5", "s"), ("8", "b")):
-        folded = folded.replace(a, b)
-    return "".join(ch for ch in folded if ch.isalnum())
+    if len(line.strip()) < RESCALE_MIN_CHARS:
+        return False
+    # Compared line by line, keeping the closest match. Comparing against the
+    # whole of the already-read text instead drags every ratio down, because
+    # SequenceMatcher divides by the combined length: a garbled line that
+    # scores 0.81 against the one line it came from scores far less against
+    # a paragraph containing it, and is wrongly kept as novel.
+    lowered = line.lower()
+    best = max((SequenceMatcher(None, lowered, seen.lower()).ratio()
+                for seen in against if seen.strip()), default=0.0)
+    return best < RESCALE_NOVELTY
 
 
 def _is_new(box: tuple[float, float, float, float], plain: list) -> bool:
@@ -345,20 +406,37 @@ def extract_image(data: bytes) -> ImageExtraction:
     # already-legible text to the scannable set, where a false positive in
     # the equalized pass would have raised the concealed-text flag on
     # essentially every image.
-    seen = {_squash(text) for _box, text in plain}
-    seen.update(_squash(text) for text in hidden)
+    # Everything the full-resolution passes already read, as one string to
+    # compare against. A rescaled line is only interesting if it is not in here.
+    already = [*(t for _b, t in plain), *hidden]
     rescaled: list[str] = []
     for side in SCALING_PASSES:
-        if min(image.size) <= side:
+        # Resize by the LONGEST side, preserving aspect ratio.
+        #
+        # Squashing to a square was the first attempt and it manufactured
+        # false findings: a 1100x310 banner forced into 224x224 is
+        # compressed almost fivefold horizontally, and OCR returns mangled
+        # fragments of text it had already read correctly. One such fragment
+        # - 'rtemalrem?rd.m', a ruin of "Internal memorandum" - raised Stage
+        # II from 0.0857 to 0.6211 on an unrelated attack and flipped seven
+        # verdicts to BLOCK for a reason unconnected to their content.
+        #
+        # Real vision encoders fit the image to their input box and pad;
+        # they do not distort it. Matching that is both more faithful and
+        # the thing that stops this pass inventing evidence.
+        longest = max(image.size)
+        if longest <= side:
             continue  # already smaller; upscaling recovers nothing
+        scale = side / longest
+        target = (max(1, round(image.width * scale)),
+                  max(1, round(image.height * scale)))
         try:
-            shrunk = image.resize((side, side), Image.NEAREST)
+            shrunk = image.resize(target, Image.NEAREST)
         except Exception:  # noqa: BLE001
             continue
-        for _box, text in _ocr_lines(reader, shrunk):
-            key = _squash(text)
-            if key and key not in seen:
-                seen.add(key)
+        for _box, text in _ocr_lines(reader, shrunk,
+                                     min_confidence=RESCALE_MIN_CONFIDENCE):
+            if _is_novel(text, already) and text not in rescaled:
                 rescaled.append(text)
 
     out.visible_text = "\n".join(text for _box, text in plain)

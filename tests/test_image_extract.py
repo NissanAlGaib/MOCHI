@@ -232,7 +232,11 @@ def test_payload_only_visible_when_downsampled_is_recovered() -> None:
 
     assert result.ocr_ran
     recovered = " ".join(result.all_segments).lower().replace(" ", "")
-    assert "password" in recovered, (
+    # Not "password": downsampled OCR is imprecise by nature and read it as
+    # "passwvord" here. Asserting on a word that survives the resize keeps the
+    # test about whether the payload reached the scanner, rather than about
+    # how cleanly OCR happened to render one word on one run.
+    assert "instructions" in recovered, (
         "the payload only legible after downsampling never reached the scanner"
     )
 
