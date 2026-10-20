@@ -136,9 +136,13 @@ def _image(block: dict) -> Extraction:
     from mochi.preprocess.image_extract import extract_from_content_block as read
 
     found = read(block)
+    # ``rescaled_text`` folds into hidden_text here only so it reaches the
+    # scanner; the distinction that matters - whether the concealed-text flag
+    # is raised - was already decided inside the image extractor, and this
+    # type carries no flag of its own.
     return Extraction(
         visible_text=found.visible_text,
-        hidden_text=list(found.hidden_text),
+        hidden_text=[*found.hidden_text, *found.rescaled_text],
         metadata_text=list(found.metadata_text),
         flags=list(found.flags),
         ran=found.ocr_ran,

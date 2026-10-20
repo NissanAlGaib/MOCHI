@@ -74,6 +74,24 @@ SAME_REGION_IOU = 0.50
 #: image in the OpenAI format.
 DATA_URI = re.compile(r"^data:image/[a-zA-Z0-9.+-]+;base64,(.+)$", re.DOTALL)
 
+#: Resolutions to re-read the image at, because that is what the model reads.
+#:
+#: A vision encoder never sees the file that was sent. It resizes every input
+#: to a fixed resolution first, and an attacker who knows that resolution can
+#: write the payload into exactly the pixels the resampler keeps - leaving a
+#: file that reads as a quarterly report at full size and as an injection once
+#: resized. Measured with ``eval/probe_scaling_attack.py``: the file as sent
+#: scores 0.0247 and is allowed; the same file at 336x336 scores 0.9958.
+#:
+#: The detector was never the problem there. It was being shown the wrong
+#: pixels. These are the common vision-tower input sizes; 336 is LLaVA's,
+#: which is what this project's image evaluation runs against.
+#:
+#: Each entry costs another OCR pass, so this is a short list rather than a
+#: sweep. An image already smaller than an entry is skipped for it - upscaling
+#: recovers nothing that was not already legible.
+SCALING_PASSES: tuple[int, ...] = (336, 224)
+
 
 class OCRUnavailable(RuntimeError):
     """Raised only when OCR is explicitly required and cannot be loaded."""
@@ -89,6 +107,20 @@ class ImageExtraction:
     hidden_text: list[str] = field(default_factory=list)
     """Lines only the equalized pass read. Low-contrast content, which is the
     case a reviewer cannot catch by looking."""
+
+    rescaled_text: list[str] = field(default_factory=list)
+    """Lines read only after resizing to a vision encoder's input resolution.
+
+    Scanned like everything else, but deliberately **not** counted as hidden
+    text. Finding a line here is not evidence of concealment: downsampled OCR
+    garbles ordinary text, and an invoice reading ``Acme Bank`` at full size
+    comes back as ``Acne Bark`` at 336x336. Treating that as a concealed
+    payload would raise the hidden-text flag on routine documents - the same
+    false-positive trap that made the equalized pass compare bounding boxes
+    rather than strings.
+
+    A genuine scaling attack still gets caught, because the recovered text
+    reaches the detector either way. Only the flag is withheld."""
 
     metadata_text: list[str] = field(default_factory=list)
     """Text from PNG text chunks and EXIF, as ``"field: value"``.
@@ -116,7 +148,8 @@ class ImageExtraction:
     def all_segments(self) -> list[str]:
         """Everything worth scanning, visible content first."""
         return [s for s in [self.visible_text, *self.hidden_text,
-                            *self.metadata_text] if s and s.strip()]
+                            *self.rescaled_text, *self.metadata_text]
+                if s and s.strip()]
 
     @property
     def text(self) -> str:
@@ -190,6 +223,21 @@ def _overlap(a: tuple[float, float, float, float],
         return 0.0
     union = (ax1 - ax0) * (ay1 - ay0) + (bx1 - bx0) * (by1 - by0) - inter
     return inter / union if union > 0 else 0.0
+
+
+def _squash(text: str) -> str:
+    """Normalise a line for comparison across resolutions.
+
+    Downsampled OCR loses spacing and confuses glyph pairs - the same line
+    came back as ``'Ignore all previous'`` at full size and
+    ``'lgnoreallprevious'`` at 336x336. Dropping whitespace and case, and
+    folding the handful of pairs that differ only by stroke, is enough to
+    recognise one as the other without claiming they are identical.
+    """
+    folded = text.lower()
+    for a, b in (("l", "i"), ("0", "o"), ("1", "i"), ("5", "s"), ("8", "b")):
+        folded = folded.replace(a, b)
+    return "".join(ch for ch in folded if ch.isalnum())
 
 
 def _is_new(box: tuple[float, float, float, float], plain: list) -> bool:
@@ -286,8 +334,36 @@ def extract_image(data: bytes) -> ImageExtraction:
 
     hidden = [text for box, text in boosted if _is_new(box, plain)]
 
+    # Third kind of pass: read the image the way the model will receive it.
+    #
+    # Unlike the equalized pass, these cannot be compared by bounding box -
+    # the coordinates are in a different space, and scaling them back lands
+    # within a pixel or two of nothing in particular. Compared by text
+    # instead, normalised, which is the weaker test the box comparison was
+    # introduced to avoid. It is acceptable here only because the failure
+    # mode is different: a false "new" line at this stage adds a line of
+    # already-legible text to the scannable set, where a false positive in
+    # the equalized pass would have raised the concealed-text flag on
+    # essentially every image.
+    seen = {_squash(text) for _box, text in plain}
+    seen.update(_squash(text) for text in hidden)
+    rescaled: list[str] = []
+    for side in SCALING_PASSES:
+        if min(image.size) <= side:
+            continue  # already smaller; upscaling recovers nothing
+        try:
+            shrunk = image.resize((side, side), Image.NEAREST)
+        except Exception:  # noqa: BLE001
+            continue
+        for _box, text in _ocr_lines(reader, shrunk):
+            key = _squash(text)
+            if key and key not in seen:
+                seen.add(key)
+                rescaled.append(text)
+
     out.visible_text = "\n".join(text for _box, text in plain)
     out.hidden_text = hidden
+    out.rescaled_text = rescaled
     out.metadata_text = _metadata_text(image)
     if out.metadata_text:
         out.add_flag(F.IMAGE_METADATA_EXTRACTED)
