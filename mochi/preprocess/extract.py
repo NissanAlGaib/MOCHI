@@ -48,8 +48,11 @@ Nothing else changes.
 
 from __future__ import annotations
 
+import hashlib
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 from mochi.preprocess.flags import NormalizationFlag as F
 
@@ -102,6 +105,32 @@ def supported() -> frozenset[str]:
     return frozenset(EXTRACTORS)
 
 
+#: Extractions already computed this process, keyed by a hash of the payload.
+#:
+#: Extraction runs twice per attachment on a converting deployment: once when
+#: detection reads the request, once when the attachment is replaced by its
+#: text before dispatch. Images cost seconds, not milliseconds, so doing the
+#: work twice is not a rounding error - it doubles the slowest step in the
+#: request.
+#:
+#: Keyed on a digest rather than the payload so the table stays small, and
+#: bounded so a long-running gateway cannot accumulate every image it has ever
+#: seen. The cache is per process and holds no plaintext key material; the
+#: payloads it summarises are already in memory for the length of the request.
+_CACHE: OrderedDict[str, Extraction] = OrderedDict()
+_CACHE_MAX = 32
+
+
+def _cache_key(block: dict) -> str | None:
+    """A stable digest of this block's payload, or ``None`` if unhashable."""
+    source = block.get("image_url") or block.get("image") or block.get("input_audio") \
+        or block.get("audio") or block.get("video") or {}
+    raw = source.get("url") or source.get("data") if isinstance(source, dict) else source
+    if not isinstance(raw, str) or not raw:
+        return None
+    return f"{block.get('type')}:{hashlib.sha256(raw.encode()).hexdigest()}"
+
+
 def extract_from_content_block(block: dict) -> Extraction:
     """Recover text from one content block, whatever modality it is.
 
@@ -116,10 +145,93 @@ def extract_from_content_block(block: dict) -> Extraction:
     extractor = EXTRACTORS.get(block.get("type"))
     if extractor is None:
         return Extraction()
+
+    key = _cache_key(block)
+    if key is not None and key in _CACHE:
+        _CACHE.move_to_end(key)
+        return _CACHE[key]
+
     try:
-        return extractor(block)
+        found = extractor(block)
     except Exception:  # noqa: BLE001 - absent runtime, broken file, bad input
         return Extraction()
+
+    if key is not None:
+        _CACHE[key] = found
+        while len(_CACHE) > _CACHE_MAX:
+            _CACHE.popitem(last=False)
+    return found
+
+
+#: How an attachment's recovered text is labelled once it replaces the
+#: attachment. The model is told what it is reading, because a transcript
+#: dropped in with no marker reads as something the user typed - and a
+#: payload inside it would then arrive wearing the user's authority.
+CONVERTED_TEMPLATE = "[{kind} transcribed by MOCHI]\n{text}"
+
+#: Block type -> the word used in that marker.
+KINDS = {
+    "image_url": "image", "image": "image",
+    "input_audio": "audio", "audio": "audio",
+    "video": "video", "video_url": "video",
+}
+
+
+def convert_attachments(request: Any) -> int:
+    """Replace every attachment in ``request`` with the text read from it.
+
+    Returns the number of blocks replaced. Mutates the request in place, and
+    is called after inspection so the cache above makes the second extraction
+    free.
+
+    **Why a gateway would do this.** A model that accepts only text cannot be
+    sent an image, so without conversion an attachment either bypasses the
+    model entirely or forces the deployment to run a multimodal one. Convert,
+    and any text model can serve a multimodal application while MOCHI remains
+    the only component that ever parses an attachment.
+
+    **What it costs.** The model no longer sees the original. For audio and
+    video that is no loss worth naming - a transcript is what a text model
+    would have received anyway. For images it is a real one: a vision encoder
+    reading a chart understands more than OCR text of that chart. A
+    deployment running a vision model should leave this off.
+
+    **What it buys beyond convenience.** Nothing unexamined reaches the model.
+    With the original forwarded, MOCHI inspects a rendering of the attachment
+    while the model reads the attachment itself, and the two can disagree -
+    which is exactly the scaling attack in ``eval/probe_scaling_attack.py``.
+    Converting closes that gap by construction, because the thing inspected
+    and the thing forwarded become the same bytes.
+    """
+    replaced = 0
+    for message in getattr(request, "messages", []) or []:
+        content = getattr(message, "content", None)
+        if not isinstance(content, list):
+            continue
+        rebuilt: list[Any] = []
+        for block in content:
+            if not isinstance(block, dict) or block.get("type") not in EXTRACTORS:
+                rebuilt.append(block)
+                continue
+            found = extract_from_content_block(block)
+            if not found.ran:
+                # Could not read it. Dropping it would silently discard
+                # whatever the user attached; forwarding it would hand the
+                # model bytes nothing inspected. Replace it with a marker so
+                # the model answers about an attachment it cannot see rather
+                # than one nobody checked.
+                rebuilt.append({"type": "text", "text":
+                                f"[{KINDS.get(block.get('type'), 'attachment')} "
+                                f"could not be read by MOCHI]"})
+                replaced += 1
+                continue
+            rebuilt.append({"type": "text", "text": CONVERTED_TEMPLATE.format(
+                kind=KINDS.get(block.get("type"), "attachment"),
+                text=found.text)})
+            replaced += 1
+        if replaced:
+            message.content = rebuilt
+    return replaced
 
 
 # --- images -----------------------------------------------------------------

@@ -142,3 +142,124 @@ def test_image_adapter_maps_ocr_ran_onto_ran(monkeypatch) -> None:
     assert result.hidden_text == ["concealed"]
     assert result.metadata_text == ["Comment: x"]
     assert result.flags == ["image_text_extracted"]
+
+
+# --- conversion: attachments become text before dispatch -------------------
+#
+# Revision item 2.3, chosen so a text-only model can serve a multimodal
+# application. The gateway calls this after enforcement and after the block
+# check, so a refused request is never transcribed and a redacted one stays
+# redacted.
+
+
+from mochi.preprocess.extract import _CACHE, convert_attachments  # noqa: E402
+
+
+class _Msg:
+    def __init__(self, content):
+        self.content = content
+
+
+class _Req:
+    def __init__(self, messages):
+        self.messages = messages
+
+
+@pytest.fixture
+def stub_image(isolated_registry):
+    """An extractor that needs no OCR runtime, so these tests always run."""
+    @register("image_url")
+    def _fake(block: dict) -> Extraction:
+        return Extraction(visible_text="PAYLOAD TEXT", ran=True)
+    _CACHE.clear()
+    yield
+    _CACHE.clear()
+
+
+def _image_block(url: str = "data:image/png;base64,AAAA") -> dict:
+    return {"type": "image_url", "image_url": {"url": url}}
+
+
+def test_attachment_is_replaced_by_its_text(stub_image) -> None:
+    request = _Req([_Msg([{"type": "text", "text": "what is this?"},
+                          _image_block()])])
+    assert convert_attachments(request) == 1
+
+    kinds = [b["type"] for b in request.messages[0].content]
+    assert kinds == ["text", "text"], "the image block should be gone"
+    assert "PAYLOAD TEXT" in request.messages[0].content[1]["text"]
+
+
+def test_converted_text_is_labelled_as_a_transcript(stub_image) -> None:
+    """Unlabelled, a transcript reads as something the user typed.
+
+    A payload inside it would then arrive wearing the user's authority, which
+    is the distinction the whole trust model rests on.
+    """
+    request = _Req([_Msg([_image_block()])])
+    convert_attachments(request)
+    assert request.messages[0].content[0]["text"].startswith("[image transcribed by MOCHI]")
+
+
+def test_unreadable_attachment_becomes_a_marker_not_silence(
+    isolated_registry,
+) -> None:
+    """Three options, and only one of them is honest.
+
+    Dropping it discards what the user attached. Forwarding it hands the
+    model bytes nothing inspected. A marker lets the model answer about an
+    attachment it cannot see, rather than about one nobody checked.
+    """
+    @register("image_url")
+    def _broken(block: dict) -> Extraction:
+        return Extraction(ran=False)
+
+    _CACHE.clear()
+    request = _Req([_Msg([_image_block()])])
+    assert convert_attachments(request) == 1
+    text = request.messages[0].content[0]["text"]
+    assert "could not be read" in text
+    assert request.messages[0].content[0]["type"] == "text"
+
+
+def test_plain_text_requests_are_untouched(stub_image) -> None:
+    request = _Req([_Msg("just a string")])
+    assert convert_attachments(request) == 0
+    assert request.messages[0].content == "just a string"
+
+
+def test_unregistered_block_types_are_left_alone(stub_image) -> None:
+    """Nothing can read it, so replacing it would destroy the only copy."""
+    request = _Req([_Msg([{"type": "input_audio", "input_audio": {"data": "x"}}])])
+    assert convert_attachments(request) == 0
+    assert request.messages[0].content[0]["type"] == "input_audio"
+
+
+def test_extraction_is_cached_so_conversion_does_not_rerun_it(stub_image) -> None:
+    """The cache is why conversion is affordable.
+
+    Extraction happens once for detection and once for conversion. On an
+    image that is seconds, not milliseconds, so without this the slowest step
+    in the request happens twice.
+    """
+    calls = []
+
+    @register("image_url")
+    def _counting(block: dict) -> Extraction:
+        calls.append(1)
+        return Extraction(visible_text="once", ran=True)
+
+    _CACHE.clear()
+    block = _image_block()
+    extract_from_content_block(block)          # detection
+    convert_attachments(_Req([_Msg([block])])) # conversion
+    assert len(calls) == 1, "extraction ran twice despite the cache"
+
+
+def test_cache_is_bounded(stub_image) -> None:
+    """A long-running gateway must not accumulate every image it has seen."""
+    from mochi.preprocess.extract import _CACHE_MAX
+
+    for i in range(_CACHE_MAX + 10):
+        extract_from_content_block(_image_block(f"data:image/png;base64,{i}"))
+    assert len(_CACHE) <= _CACHE_MAX

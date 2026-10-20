@@ -349,6 +349,20 @@ async def chat_completions(request: Request) -> Any:
         return _error(BLOCK_STATUS, verdict.reason,
                       extra={"request_id": record.request_id})
 
+    # Attachments become text before dispatch, when configured to. After
+    # enforcement, so a redacted request stays redacted, and after the block
+    # check, so nothing is transcribed for a request that is not being sent.
+    # Extraction already ran during inspection and its result is cached, so
+    # this is a lookup rather than a second OCR pass.
+    if settings.forward_mode == "convert" and settings.read_images:
+        from mochi.preprocess.extract import convert_attachments
+
+        converted = convert_attachments(parsed)
+        if converted:
+            record.normalization_flags.append("attachments_converted_to_text")
+            logger.info("Converted %d attachment(s) to text for %s",
+                        converted, record.request_id)
+
     # ``stream`` is dropped before dispatch even in buffered mode: MOCHI needs the
     # complete body from the provider, then re-frames it as a stream itself.
     upstream_body = parsed.upstream_payload(default_model=settings.target_llm_model)

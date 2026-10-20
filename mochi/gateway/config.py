@@ -67,6 +67,23 @@ class Settings:
     1.8 s per image against ~200 ms for the rest of inspection, and needs
     ``rapidocr_onnxruntime``, so it is opt-in rather than assumed."""
 
+    forward_mode: str
+    """What reaches the model when a request carries an attachment.
+
+    ``convert`` replaces each attachment with the text MOCHI read from it, so
+    a text-only model can serve a multimodal application and nothing
+    unexamined is forwarded. ``inspect`` leaves the attachment in place and
+    only reads it, which a deployment running a vision model wants - OCR text
+    of a chart is poorer input than the chart.
+
+    Converting also closes a gap that inspecting cannot. Forward the original
+    and MOCHI examines a rendering while the model reads the file itself; the
+    two can disagree, which is what a scaling attack exploits. Convert and
+    the inspected bytes and the forwarded bytes are the same.
+
+    Requires ``read_images``: there is nothing to convert to without
+    extraction."""
+
     enforce_on_trusted: bool
     """Act on detections inside TRUSTED segments.
 
@@ -146,6 +163,11 @@ def get_settings() -> Settings:
         resolve_band_by_trust=_get_bool("MOCHI_RESOLVE_BAND_BY_TRUST", True),
         system_prompt_file=os.getenv("MOCHI_SYSTEM_PROMPT_FILE", "").strip(),
         read_images=_get_bool("MOCHI_READ_IMAGES", False),
+        # Defaults to convert: it is the mode that works with any model and
+        # the one where the inspected bytes and the forwarded bytes are the
+        # same. A deployment with a vision model should set "inspect".
+        forward_mode=(os.getenv("MOCHI_FORWARD_MODE", "convert").strip().lower()
+                      or "convert"),
         enforce_on_trusted=_get_bool("MOCHI_ENFORCE_ON_TRUSTED", False),
         # Cross-turn risk accumulation. On by default: it costs a dict lookup and
         # is the only defence against multi-step chains. Requires clients to send
