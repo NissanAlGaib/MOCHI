@@ -29,10 +29,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections import defaultdict
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+# Run as a script, so the repo root is not importable by default. Needed since
+# this now reads eval.metrics for the enforcement-leakage figures.
+sys.path.insert(0, str(REPO))
 REPORTS = REPO / "reports"
 OUT = REPORTS / "mochi_results.xlsx"
 
@@ -262,6 +266,32 @@ def sheet_summary(wb, sims, detects, benign, taglish, extra):
         pct(ws, 5, start, "0.00%")
         ws.append([])
 
+    if sims:
+        from eval.metrics import enforcement_leakage
+
+        title(ws, "The four metrics, each with the denominator it is measured over")
+        head(ws, ["metric", "corpus", "value", "numerator", "denominator",
+                  "what the denominator is"])
+        start = ws.max_row + 1
+        for label, rows in sims.items():
+            defended = [r for r in rows if r.get("condition") == "defended"]
+            leak = enforcement_leakage(defended)
+            if not leak.acted and not leak.undetected:
+                continue  # no verdicts recorded - see the note below
+            # An empty denominator is not a zero result. Say so in the row
+            # rather than leaving a reader to infer it from two zeroes.
+            because = ("attacks MOCHI redacted and forwarded" if leak.forwarded
+                       else "nothing was forwarded - every attack here is "
+                            "direct, so all were refused outright")
+            ws.append(["Enforcement leakage", label,
+                       blank(leak.leak_rate), leak.leaked,
+                       leak.forwarded or None, because])
+            ws.append(["  of which never flagged", label, None,
+                       leak.undetected, None,
+                       "attacks that worked and were never acted on"])
+        pct(ws, 3, start)
+        ws.append([])
+
     sealed = extra.get("sealed", {}).get("stage12")
     if sealed:
         m = sealed["metrics"]
@@ -346,6 +376,32 @@ def sheet_summary(wb, sims, detects, benign, taglish, extra):
 
     title(ws, "How to read this")
     for line in [
+        "Four metrics are reported and they answer different questions. "
+        "DETECTION: of all attacks, how many did MOCHI flag? MITIGATION: of "
+        "attacks dangerous to the bare model, how many stopped working? "
+        "ENFORCEMENT LEAKAGE: of attacks MOCHI acted on but still forwarded, "
+        "how many worked anyway? FALSE POSITIVES: of ordinary benign traffic, "
+        "how much was refused? Each is quoted with its denominator because "
+        "they share no common one.",
+        "Enforcement leakage is NOT a false-positive rate. A false positive "
+        "is a benign request wrongly refused. Leakage counts malicious "
+        "requests that were correctly flagged and whose mitigation then "
+        "failed — true positives, not false ones. The two guard different "
+        "things and replacing one with the other would leave the mitigation "
+        "rate unguarded, since refusing every request scores 100%.",
+        "Read leakage next to the row beneath it. On the generated corpus 4 "
+        "of 33 redacted requests still succeeded, against 48 attacks never "
+        "flagged at all — so redaction mostly holds when it fires, and the "
+        "failures are overwhelmingly cases where nothing fired. Effort "
+        "belongs in detection rather than in hardening mitigation.",
+        "Gandalf has no leakage row because every Gandalf attack sits in the "
+        "user's own turn and is refused outright, so nothing is ever "
+        "forwarded. An empty denominator is reported as blank rather than 0%, "
+        "which would read as a perfect score instead of an absent one.",
+        "The image arms have no leakage row either: the harness recorded no "
+        "verdict before 2026-10-20. It does now, but those runs predate the "
+        "fix and a missing verdict is skipped rather than assumed to be "
+        "ALLOW. Re-run the image evaluation to fill this in.",
         "Mitigation is measured against DANGEROUS attacks only — those that "
         "succeeded against the bare model. An attack a model refuses unaided "
         "was never a threat, and counting it would inflate the rate.",

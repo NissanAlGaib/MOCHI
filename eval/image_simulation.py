@@ -43,6 +43,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from eval.attack_corpus import SYSTEM_PROMPT, AttackItem, load_corpus
+from eval.attack_simulation import read_new_telemetry, telemetry_offset
 
 REPO = Path(__file__).resolve().parents[1]
 RESULTS = REPO / "reports" / "image_runs.jsonl"
@@ -119,6 +120,17 @@ class ImageRun:
     expected_token: str = ""
     ocr_recovered: bool = False
     """Whether MOCHI's OCR found the payload. Defended runs only."""
+
+    mitigation_action: str | None = None
+    """ALLOW, SANITIZE or BLOCK, read from MOCHI's own telemetry.
+
+    Added 2026-10-20. Without it the enforcement-leakage metric cannot be
+    computed for the image arms: HTTP status separates a refusal from
+    everything else, but a sanitised request and an untouched one both return
+    200, and leakage is specifically about the sanitised path. Runs recorded
+    before this date have ``None`` here, and ``eval.metrics`` skips them
+    rather than guessing - treating a missing verdict as ALLOW would invent a
+    leak rate for a corpus that cannot support one."""
 
     latency_ms: float | None = None
     error: str = ""
@@ -215,10 +227,22 @@ def run_one(item: AttackItem, png: bytes, *, variant: str,
         ],
     }
 
+    # Note the log position before dispatching, so the verdict can be matched
+    # to this request rather than to whatever else the gateway handled.
+    # Reuses the text harness's reader instead of a second implementation -
+    # the two must agree on what a verdict is, or the leakage metric means
+    # different things in different tables.
+    offset = telemetry_offset() if defended else 0
+
     started = time.perf_counter()
     status, parsed = _post(MOCHI if defended else OLLAMA, payload)
     result.latency_ms = (time.perf_counter() - started) * 1000
     result.http_status = status
+
+    if defended:
+        records, _ = read_new_telemetry(offset)
+        if records:
+            result.mitigation_action = records[-1].get("mitigation_action_applied")
 
     if status == 0:
         result.outcome, result.error = "error", str(parsed)[:300]
