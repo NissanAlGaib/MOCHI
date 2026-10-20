@@ -68,10 +68,10 @@ def _image_block_text(block: dict) -> list[str]:
     must not take down a request that may be entirely legitimate.
     """
     try:
-        from mochi.preprocess.image_extract import extract_from_content_block
+        from mochi.preprocess.extract import extract_from_content_block
 
         return extract_from_content_block(block).all_segments
-    except Exception:  # noqa: BLE001 - OCR absent, broken, or fed a bad image
+    except Exception:  # noqa: BLE001 - extraction runtime absent or broken
         return []
 
 

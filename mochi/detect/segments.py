@@ -151,7 +151,7 @@ def _text_from_content(content: Any, *,
         if isinstance(block.get("text"), str):
             parts.append(block["text"])
         elif read_images:
-            text, found = _image_block(block)
+            text, found = _attachment_block(block)
             if text:
                 parts.append(text)
             for flag in found:
@@ -160,18 +160,25 @@ def _text_from_content(content: Any, *,
     return "\n".join(parts), flags
 
 
-def _image_block(block: dict) -> tuple[str, list[str]]:
-    """OCR one image content block. Imported lazily; failures yield nothing.
+def _attachment_block(block: dict) -> tuple[str, list[str]]:
+    """Recover text from one non-text content block, whatever modality it is.
 
-    A malformed image must not take down a request that may be legitimate,
-    and a deployment that never enables OCR should never load the runtime.
+    Dispatches through ``mochi.preprocess.extract``, which owns the registry,
+    so adding audio or video needs no change here. Imported lazily: a
+    deployment that never receives attachments should never load an OCR or
+    speech runtime.
+
+    The registry already swallows a failing extractor, returning an empty
+    result rather than raising - a corrupt attachment must not take down a
+    request that may be entirely legitimate. The try/except stays for the
+    import itself, which can fail when the optional runtime is absent.
     """
     try:
-        from mochi.preprocess.image_extract import extract_from_content_block
+        from mochi.preprocess.extract import extract_from_content_block
 
         result = extract_from_content_block(block)
         return result.text, list(result.flags)
-    except Exception:  # noqa: BLE001 - OCR absent, broken, or fed a bad image
+    except Exception:  # noqa: BLE001 - extraction runtime absent or broken
         return "", []
 
 
