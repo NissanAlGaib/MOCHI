@@ -243,6 +243,25 @@ def convert_attachments(request: Any) -> int:
 # four things, under one different name.
 
 
+@register("input_audio", "audio", "audio_url")
+def _audio(block: dict) -> Extraction:
+    from mochi.preprocess.audio_extract import decode_audio_block, extract_audio
+
+    data = decode_audio_block(block)
+    if not data:
+        return Extraction()
+    found = extract_audio(data)
+    # No hidden_text: audio has no amplitude-based hidden channel. Whisper
+    # normalises gain itself, so a quiet payload is transcribed by the plain
+    # pass and a second one adds nothing. See audio_extract's docstring.
+    return Extraction(
+        visible_text=found.visible_text,
+        metadata_text=list(found.metadata_text),
+        flags=list(found.flags),
+        ran=found.ran,
+    )
+
+
 @register("image_url", "image")
 def _image(block: dict) -> Extraction:
     from mochi.preprocess.image_extract import extract_from_content_block as read

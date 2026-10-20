@@ -66,6 +66,16 @@ pytest-html>=4.1.0         # standalone HTML report for the thesis appendix
 # Optional: image_extract degrades to "no text found" without it.
 rapidocr_onnxruntime>=1.3
 
+# --- Audio inspection (MOCHI_READ_IMAGES also gates audio, off by default) ---
+# Speech-to-text so a spoken injection is inspected like any other text.
+# faster-whisper over openai-whisper: several times quicker on CPU, which
+# matters when Stage II is already on CPU beside it. Pulls ctranslate2 and av;
+# av is also what the video extractor uses for audio tracks, so neither is an
+# extra cost. The model (~150 MB for "base") downloads on first use.
+#   pip install faster-whisper mutagen
+# faster-whisper>=1.0
+# mutagen>=1.47          # ID3 and similar container tags
+
 # --- Phase 13 attack simulation ---
 # Writes reports/attack_simulation.xlsx. Used by eval/export_simulation.py
 # only, never by the gateway, so it is not a runtime dependency.

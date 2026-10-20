@@ -229,10 +229,15 @@ def test_plain_text_requests_are_untouched(stub_image) -> None:
 
 
 def test_unregistered_block_types_are_left_alone(stub_image) -> None:
-    """Nothing can read it, so replacing it would destroy the only copy."""
-    request = _Req([_Msg([{"type": "input_audio", "input_audio": {"data": "x"}}])])
+    """Nothing can read it, so replacing it would destroy the only copy.
+
+    Uses a type no extractor claims. ``input_audio`` was the example here
+    until audio was added, which is the point - this must track the registry
+    rather than assume what is missing from it.
+    """
+    request = _Req([_Msg([{"type": "file_attachment", "file": {"data": "x"}}])])
     assert convert_attachments(request) == 0
-    assert request.messages[0].content[0]["type"] == "input_audio"
+    assert request.messages[0].content[0]["type"] == "file_attachment"
 
 
 def test_extraction_is_cached_so_conversion_does_not_rerun_it(stub_image) -> None:

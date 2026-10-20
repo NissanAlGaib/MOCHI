@@ -83,6 +83,17 @@ class NormalizationFlag(StrEnum):
     # descriptions into the prompt turn them into text the model does obey.
     IMAGE_METADATA_EXTRACTED = "image_metadata_extracted"
 
+    # Speech transcribed from a recording. The same hole images had: a
+    # payload spoken aloud reaches a transcribing application as text the
+    # model obeys, and reaches an untranscribed gateway as bytes nothing
+    # can read.
+    AUDIO_TRANSCRIBED = "audio_transcribed"
+    # Text from ID3 or similar container tags. The model is handed a
+    # transcript and never parses a container, but media applications lift
+    # titles and comments into prompts exactly as document tooling lifts
+    # EXIF captions.
+    AUDIO_METADATA_EXTRACTED = "audio_metadata_extracted"
+
     # --- Resource guards ---
     DECODE_DEPTH_EXCEEDED = "decode_depth_exceeded"
     OVERSIZED_AFTER_DECODE = "oversized_after_decode"
