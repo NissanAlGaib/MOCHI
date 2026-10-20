@@ -453,10 +453,17 @@ def sheet_summary(wb, sims, detects, benign, taglish, extra):
         "user's own turn and is refused outright, so nothing is ever "
         "forwarded. An empty denominator is reported as blank rather than 0%, "
         "which would read as a perfect score instead of an absent one.",
-        "The image arms have no leakage row either: the harness recorded no "
-        "verdict before 2026-10-20. It does now, but those runs predate the "
-        "fix and a missing verdict is skipped rather than assumed to be "
-        "ALLOW. Re-run the image evaluation to fill this in.",
+        "The image arms have no leakage rate for the same reason as Gandalf: "
+        "an attack arriving in an image sits in the user's own turn, so a "
+        "detection refuses the request rather than redacting it. Their "
+        "verdict rows are present — the harness began recording them on "
+        "2026-10-20 and both arms were re-run.",
+        "Those re-runs also carry the scaling pass, which reads each image "
+        "again at a vision encoder's input resolution. It left the visible "
+        "arm unchanged at 87.5% and lifted the concealed arm from 75.0% to "
+        "87.5%, halving the attacks that got through. Concealment no longer "
+        "buys an attacker anything against this defence, where it previously "
+        "cost 12.5 points.",
         "Mitigation is measured against DANGEROUS attacks only — those that "
         "succeeded against the bare model. An attack a model refuses unaided "
         "was never a threat, and counting it would inflate the rate.",
