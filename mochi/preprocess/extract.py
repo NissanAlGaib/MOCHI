@@ -243,6 +243,23 @@ def convert_attachments(request: Any) -> int:
 # four things, under one different name.
 
 
+@register("video", "video_url")
+def _video(block: dict) -> Extraction:
+    from mochi.preprocess.video_extract import decode_video_block, extract_video
+
+    data = decode_video_block(block)
+    if not data:
+        return Extraction()
+    found = extract_video(data)
+    return Extraction(
+        visible_text=found.visible_text,
+        hidden_text=list(found.hidden_text),
+        metadata_text=list(found.metadata_text),
+        flags=list(found.flags),
+        ran=found.ran,
+    )
+
+
 @register("input_audio", "audio", "audio_url")
 def _audio(block: dict) -> Extraction:
     from mochi.preprocess.audio_extract import decode_audio_block, extract_audio

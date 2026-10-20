@@ -94,6 +94,16 @@ class NormalizationFlag(StrEnum):
     # EXIF captions.
     AUDIO_METADATA_EXTRACTED = "audio_metadata_extracted"
 
+    # Text read out of a video, from sampled frames or its soundtrack. A
+    # video has no payload channel of its own - it is images and audio, both
+    # of which already have readers - so this records that the decode
+    # happened rather than naming a new kind of attack.
+    VIDEO_TEXT_EXTRACTED = "video_text_extracted"
+    # The frame cap cut the scan short. A partly-read video is not a clean
+    # one, and an attacker who picks the duration would otherwise pick how
+    # much of their payload goes uninspected.
+    VIDEO_SCAN_TRUNCATED = "video_scan_truncated"
+
     # --- Resource guards ---
     DECODE_DEPTH_EXCEEDED = "decode_depth_exceeded"
     OVERSIZED_AFTER_DECODE = "oversized_after_decode"
