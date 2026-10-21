@@ -363,8 +363,21 @@ def _metadata_text(image) -> list[str]:
     return found
 
 
-def extract_image(data: bytes) -> ImageExtraction:
-    """Read an image twice - as-is and equalized - and return both findings."""
+def extract_image(data: bytes, *,
+                  scaling_passes: tuple[int, ...] | None = None) -> ImageExtraction:
+    """Read an image as-is, equalized, and at each encoder resolution.
+
+    ``scaling_passes`` overrides :data:`SCALING_PASSES`; pass ``()`` to skip
+    them. They are the expensive part by a wide margin - 6.9 s against 1.7 s
+    on a measured frame - so a caller reading many images wants the choice.
+
+    Skipping them is right for video frames specifically. A scaling attack
+    works because the attacker knows the resolution their *delivered file*
+    will be resized to and writes the payload into the pixels that survive.
+    A frame pulled out of a stream has already been through sampling and
+    decode, so that prediction does not hold, and the passes buy little
+    against four times the cost.
+    """
     out = ImageExtraction()
     if not data or len(data) > MAX_IMAGE_BYTES:
         return out
@@ -410,7 +423,7 @@ def extract_image(data: bytes) -> ImageExtraction:
     # compare against. A rescaled line is only interesting if it is not in here.
     already = [*(t for _b, t in plain), *hidden]
     rescaled: list[str] = []
-    for side in SCALING_PASSES:
+    for side in (SCALING_PASSES if scaling_passes is None else scaling_passes):
         # Resize by the LONGEST side, preserving aspect ratio.
         #
         # Squashing to a square was the first attempt and it manufactured

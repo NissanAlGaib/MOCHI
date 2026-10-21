@@ -65,9 +65,19 @@ from mochi.preprocess.flags import NormalizationFlag as F
 #: the detector only needs the words - so a larger model buys little.
 MODEL_SIZE = os.getenv("MOCHI_WHISPER_MODEL", "base").strip() or "base"
 
+#: Where to transcribe. ``cpu`` by default, deliberately.
+#:
+#: CUDA is several times quicker, but on a deployment serving a local model
+#: the card is already holding it - a 7B target at 8k context leaves little
+#: of 8 GB - and a transcriber competing for the remainder is how a GPU
+#: driver timeout happens. Set ``cuda`` when the card is free, which during
+#: an offline evaluation it may be.
+DEVICE = os.getenv("MOCHI_WHISPER_DEVICE", "cpu").strip().lower() or "cpu"
+
 #: int8 on CPU: roughly four times faster than float32 for no loss that
 #: matters to a detector reading the words rather than grading the prose.
-COMPUTE_TYPE = "int8"
+#: float16 on CUDA, where int8 buys less and is less well supported.
+COMPUTE_TYPE = "float16" if DEVICE == "cuda" else "int8"
 
 #: Audio larger than this is refused rather than decoded. A caller sending
 #: 50 MB of audio to a text gateway is not asking for transcription, and
@@ -144,10 +154,21 @@ def _model():
         try:
             from faster_whisper import WhisperModel
 
-            _MODEL = WhisperModel(MODEL_SIZE, device="cpu",
+            _MODEL = WhisperModel(MODEL_SIZE, device=DEVICE,
                                   compute_type=COMPUTE_TYPE)
         except Exception:  # noqa: BLE001 - absent, or weights unreachable
             _MODEL = None
+            if DEVICE != "cpu":
+                # CUDA here needs cuBLAS and cuDNN present and version-matched,
+                # which is a common way for this to fail on a machine where
+                # torch's CUDA works fine. Falling back is better than losing
+                # audio inspection entirely over a library mismatch - a
+                # deployment that silently stops transcribing stops detecting.
+                try:
+                    _MODEL = WhisperModel(MODEL_SIZE, device="cpu",
+                                          compute_type="int8")
+                except Exception:  # noqa: BLE001
+                    _MODEL = None
     return _MODEL
 
 
