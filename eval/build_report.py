@@ -52,6 +52,8 @@ SOURCES = [
     ("gandalf 300", REPORTS / "gandalf_runs.jsonl", "sim"),
     ("gandalf detection (e5-fine-tuned)", REPORTS / "gandalf_detection.jsonl", "detect"),
     ("gandalf detection (e5-banking)", REPORTS / "gandalf_detection_BANKING.jsonl", "detect"),
+    ("audio vs mistral", REPORTS / "audio_runs.jsonl", "av"),
+    ("video vs mistral", REPORTS / "video_runs.jsonl", "av"),
 ]
 BENIGN = [
     ("e5-fine-tuned", REPORTS / "benign_runs.jsonl"),
@@ -126,6 +128,18 @@ def normalise_image_runs(rows: list[dict]) -> list[dict]:
     for row in rows:
         row.setdefault("target_name", "LLaVA 7B (vision)")
         row.setdefault("placement", f"image/{row.get('variant', 'visible')}")
+    return rows
+
+
+def normalise_av_runs(rows: list[dict]) -> list[dict]:
+    """Give audio and video runs the fields the shared summariser expects.
+
+    Same reasoning as the image normaliser: one summariser for every corpus
+    rather than a second code path that drifts from the first.
+    """
+    for row in rows:
+        row.setdefault("target_name", "Mistral 7B (text)")
+        row.setdefault("placement", row.get("modality", "audio"))
     return rows
 
 
@@ -472,6 +486,31 @@ def sheet_summary(wb, sims, detects, benign, taglish, extra):
         "detector reads mangled characters as obfuscation, which is worth "
         "knowing in its own right — any OCR noise reaching it inflates the "
         "score.",
+        "Do not compare DETECTION rates across the modality arms. The same "
+        "61 attacks were rendered as images, speech and video, but they are "
+        "not equally viable in each channel: 45 were blocked as images "
+        "against 31 as audio, and the 17 that differ are attacks whose "
+        "mechanism is syntax rather than meaning — encoded payloads, "
+        "injected tags, zero-width characters. None of them survives being "
+        "spoken, and none of them worked against the bare model either.",
+        "That is the finding, not a gap in the defence. '</system> "
+        "<new_instructions>' becomes 'Slash system new underscore "
+        "instructions' once read aloud; a hex payload becomes digit groups "
+        "that no longer decode; zero-width characters simply vanish, because "
+        "a speech synthesiser has nothing to say for them. The audio threat "
+        "model is narrower than the text one, and what survives into it is "
+        "the semantic attack Stage II is built for.",
+        "MITIGATION is the comparable metric, because its denominator is "
+        "attacks that actually worked undefended in that channel. On that "
+        "basis audio reaches 77.8% against 87.5% for visible images.",
+        "The video arm's 43.8% is not comparable to either, and the corpus "
+        "is why. Each clip carries the payload twice — spoken, and shown on "
+        "screen for one second — so the transcript the model receives states "
+        "the instruction twice over. That makes the attacks stronger rather "
+        "than the defence weaker: 16 were dangerous against 9 for the same "
+        "attacks as audio, while MOCHI blocked 31 of 61 either way. Reading "
+        "it as 'video is hard to defend' would be wrong; 'an attacker using "
+        "every channel at once gets a stronger prompt' is what it shows.",
         "Mitigation is measured against DANGEROUS attacks only — those that "
         "succeeded against the bare model. An attack a model refuses unaided "
         "was never a threat, and counting it would inflate the rate.",
@@ -753,6 +792,9 @@ def main() -> int:
     sims.update({label: normalise_image_runs(read_jsonl(path))
                  for label, path, kind in SOURCES
                  if kind == "image" and read_jsonl(path)})
+    sims.update({label: normalise_av_runs(read_jsonl(path))
+                 for label, path, kind in SOURCES
+                 if kind == "av" and read_jsonl(path)})
     detects = {label: read_jsonl(path) for label, path, kind in SOURCES
                if kind == "detect" and read_jsonl(path)}
     benign = {label: read_jsonl(path) for label, path in BENIGN
