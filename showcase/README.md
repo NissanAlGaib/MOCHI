@@ -13,6 +13,7 @@ Start here:
 | **[`try_prompt.py`](try_prompt.py)** | Type a prompt, see exactly what MOCHI decides and why. Start here. |
 | **[`run_attacks.py`](run_attacks.py)** | One attack of every kind it handles, with verdicts. |
 | **[`compare_llm.py`](compare_llm.py)** | The same attack with and without MOCHI, against a real model. |
+| **[`compare_surfaces.py`](compare_surfaces.py)** | The same attack through the in-process wrapper and through the proxy, showing both reach the same verdict. |
 | **[`INVENTORY.md`](INVENTORY.md)** | What every file in the repository is for, and what is superseded. |
 
 The first two need no model server and no network. They run the real detection
