@@ -222,3 +222,105 @@ def format_hypothesis_report(results: dict[str, TestResult]) -> str:
         lines.append("")
     lines.append("=" * 74)
     return "\n".join(lines)
+
+
+@dataclass(frozen=True)
+class Proportion:
+    """A rate, with the interval that says how much to trust it.
+
+    A false-positive rate measured on 40 clips and one measured on 3,080
+    queries are both "a percentage", and reporting them side by side without
+    intervals invites a comparison neither supports. Wilson rather than the
+    normal approximation because these rates sit near zero, where the normal
+    interval runs below 0 and stops meaning anything.
+    """
+
+    flagged: int
+    total: int
+    ci_lower: float
+    ci_upper: float
+
+    @property
+    def rate(self) -> float:
+        return self.flagged / self.total if self.total else float("nan")
+
+    def summary(self) -> str:
+        if not self.total:
+            return "no samples"
+        return (f"{self.rate:.2%}  ({self.flagged}/{self.total})  "
+                f"95% CI [{self.ci_lower:.2%}, {self.ci_upper:.2%}]")
+
+
+def wilson_interval(flagged: int, total: int, *,
+                    z: float = 1.959963984540054) -> Proportion:
+    """Wilson score interval for a binomial proportion.
+
+    Holds up at zero successes, which matters here: an arm that flags nothing
+    has a rate of 0.00% and an upper bound that depends entirely on how many
+    samples were taken, and the upper bound is the honest part of that claim.
+    """
+    if total <= 0:
+        return Proportion(flagged, 0, float("nan"), float("nan"))
+    p = flagged / total
+    denominator = 1 + z * z / total
+    centre = (p + z * z / (2 * total)) / denominator
+    spread = z * math.sqrt(p * (1 - p) / total + z * z / (4 * total * total)) / denominator
+    lower, upper = centre - spread, centre + spread
+
+    # At the boundaries the interval is exactly [0, u] or [l, 1], but the
+    # arithmetic above leaves float residue there - 1.7e-18 rather than 0 for
+    # 0/200. Printed as a percentage that is harmless; compared against 0 it
+    # is not, and these arms are expected to report zero often.
+    if flagged == 0:
+        lower = 0.0
+    if flagged == total:
+        upper = 1.0
+    return Proportion(flagged, total, max(0.0, lower), min(1.0, upper))
+
+
+def mcnemar_test(both: int, only_a: int, only_b: int, neither: int, *,
+                 name: str = "McNemar (paired proportions)") -> TestResult:
+    """Whether two paired binary measurements disagree more than by chance.
+
+    The test for "does rendering a query as an image change whether it is
+    flagged, on the same queries". A two-sample proportion test would be wrong
+    here because the samples are not independent - they are the same queries
+    twice - and McNemar uses exactly the information that pairing provides:
+    the discordant cells, ``only_a`` and ``only_b``. The agreements carry no
+    evidence about a difference and drop out.
+
+    Uses the exact binomial test rather than the chi-square approximation.
+    With few discordant pairs - the expected case for rates near zero - the
+    approximation is unreliable in the direction that manufactures
+    significance.
+    """
+    discordant = only_a + only_b
+    n = both + only_a + only_b + neither
+
+    if discordant == 0:
+        p_value = 1.0
+    else:
+        # Two-sided exact binomial against p = 0.5 on the discordant pairs.
+        smaller = min(only_a, only_b)
+        tail = sum(math.comb(discordant, k) for k in range(smaller + 1))
+        p_value = min(1.0, 2 * tail / (2 ** discordant))
+
+    rate_a = (both + only_a) / n if n else float("nan")
+    rate_b = (both + only_b) / n if n else float("nan")
+    # Wilson interval on the difference is not standard; the discordant counts
+    # are what the test speaks to, so the CI is left to wilson_interval on each
+    # arm and this records the shift.
+    return TestResult(
+        name=name,
+        statistic=float(discordant),
+        p_value=p_value,
+        degrees_of_freedom=None,
+        effect_size=0.0 if not n else (only_b - only_a) / n,
+        effect_label=f"{only_a} vs {only_b} discordant",
+        mean_before=rate_a,
+        mean_after=rate_b,
+        mean_difference=rate_b - rate_a,
+        ci_lower=float("nan"),
+        ci_upper=float("nan"),
+        n=n,
+    )
