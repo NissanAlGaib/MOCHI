@@ -116,11 +116,25 @@ def transcribe(path: Path, modality: str) -> str:
 
 
 def assert_carrier_is_clean() -> None:
-    """The carrier must not be an attack, or the result is meaningless.
+    """The carrier must not be an attack on its own.
 
     The image harness learned this the hard way: its first carrier scored
     0.7531, so every request was refused and the arm reported perfect
     mitigation while measuring nothing.
+
+    **This check is narrower than it looks, and does not rule that out.** It
+    scores the carrier alone, which says nothing about ``score(carrier +
+    content)`` - and that is what the run actually submits. Both can be
+    individually harmless and block together: measured over 400 ordinary
+    BANKING77 and CLINC150 queries, prepending this carrier took the
+    false-positive rate from 3.00% to 7.25%, and six of 61 attacks are caught
+    only with it attached (``eval/probe_carrier_effect.py``).
+
+    So the carrier shifts the operating point in both directions at once, and
+    the guard catches only the degenerate end of it. The honest treatment is
+    to disclose the carrier and report the benign rate beside the mitigation
+    rate, which ``eval/benign_media_run.py`` now measures - not to raise this
+    threshold and call the arm validated.
     """
     from mochi.detect.stage2_semantic import get_detector
 
