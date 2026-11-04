@@ -101,7 +101,7 @@ message roles.
 | `enable_stage2` | `True` | off also avoids importing torch |
 | `stage2_model_dir` | `None` | a folder, or `hf:owner/name@revision`; see the README |
 | `stage2_device` | `"cpu"` | |
-| `read_attachments` | `False` | OCR / transcription for images, audio, video |
+| `read_attachments` | `False` | Read attachments: OCR for images, transcription for audio and video, text from PDFs and other documents |
 | `forward_mode` | `"inspect"` | `"convert"` replaces attachments with their text |
 | `enable_outbound` | `True` | inspect responses as well as requests |
 | `allow_buffered_streaming` | `False` | see below |

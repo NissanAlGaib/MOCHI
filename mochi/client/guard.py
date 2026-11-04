@@ -396,7 +396,8 @@ def guard(client: Any, **settings: Any) -> Any:
             rather than redacted. Supplying this is what makes sanitisation
             possible, and is the single highest-value thing an integration can
             do.
-        read_attachments: Extract text from images, audio and video.
+        read_attachments: Extract text from images, audio, video and attached
+            documents (PDF, text, HTML).
         forward_mode: ``inspect`` or ``convert``.
         enable_stage2: Off disables the semantic stage, and with it the torch
             import.

@@ -78,9 +78,10 @@ SOURCES = [
 #: Clips per dataset, per modality. Video is lower because it costs ~9 s each
 #: and its rate will carry the widest interval regardless; spending an hour to
 #: narrow it slightly is not the best use of the time.
-DEFAULT_LIMIT = {"image": 200, "audio": 200, "video": 40}
+DEFAULT_LIMIT = {"image": 200, "audio": 200, "video": 40, "pdf": 200, "web": 200}
 
-SUFFIX = {"image": ".png", "audio": ".wav", "video": ".mp4"}
+SUFFIX = {"image": ".png", "audio": ".wav", "video": ".mp4", "pdf": ".pdf",
+          "web": ".html"}
 
 #: Fixed, so the subset does not drift between runs and the manifest stays
 #: meaningful after a rebuild.
@@ -159,6 +160,29 @@ def write_video(text: str, path: Path, wav: Path) -> bool:
     return build_video(text, wav, path)
 
 
+def write_pdf(text: str, path: Path) -> bool:
+    """The query as a PDF's text, rendered as the attack PDFs are."""
+    from eval.document_corpus import render_pdf
+
+    try:
+        path.write_bytes(render_pdf(text))
+    except Exception:  # noqa: BLE001 - a glyph no installed font carries
+        return False
+    return path.exists() and path.stat().st_size > 256
+
+
+def write_web(text: str, path: Path) -> bool:
+    """The query as a post on the forum page the attack pages use.
+
+    The attack pages' ``visible`` variant puts its payload in the same place,
+    so a benign page and an attack page differ only in that post's words.
+    """
+    from eval.document_corpus import render_page
+
+    path.write_text(render_page(post=text), encoding="utf-8")
+    return path.exists()
+
+
 def build(modality: str, limit: int, *, rebuild: bool) -> list[BenignClip]:
     out_dir = BENIGN_DIR / f"{modality}s"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -184,6 +208,10 @@ def build(modality: str, limit: int, *, rebuild: bool) -> list[BenignClip]:
                     ok = write_image(text, target)
                 elif modality == "audio":
                     ok = write_audio(text, target)
+                elif modality == "pdf":
+                    ok = write_pdf(text, target)
+                elif modality == "web":
+                    ok = write_web(text, target)
                 else:
                     ok = write_video(text, target, speech_dir / f"{clip_id}.wav")
                 if not ok:
@@ -240,11 +268,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--modality", choices=("image", "audio", "video"),
+    parser.add_argument("--modality",
+                        choices=("image", "audio", "video", "pdf", "web"),
                         required=True)
     parser.add_argument("--limit", type=int, default=None,
-                        help="clips per dataset (default: 200 image/audio, "
-                             "40 video)")
+                        help="clips per dataset (default: 200 image/audio/"
+                             "pdf/web, 40 video)")
     parser.add_argument("--rebuild", action="store_true",
                         help="overwrite clips that already exist")
     args = parser.parse_args()

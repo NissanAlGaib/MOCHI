@@ -54,6 +54,8 @@ SOURCES = [
     ("gandalf detection (e5-banking)", REPORTS / "gandalf_detection_BANKING.jsonl", "detect"),
     ("audio vs mistral", REPORTS / "audio_runs.jsonl", "av"),
     ("video vs mistral", REPORTS / "video_runs.jsonl", "av"),
+    ("PDFs vs mistral", REPORTS / "pdf_runs.jsonl", "doc"),
+    ("web pages vs mistral", REPORTS / "web_runs.jsonl", "doc"),
 ]
 BENIGN = [
     ("e5-fine-tuned", REPORTS / "benign_runs.jsonl"),
@@ -140,6 +142,19 @@ def normalise_av_runs(rows: list[dict]) -> list[dict]:
     for row in rows:
         row.setdefault("target_name", "Mistral 7B (text)")
         row.setdefault("placement", row.get("modality", "audio"))
+    return rows
+
+
+def normalise_document_runs(rows: list[dict]) -> list[dict]:
+    """PDF and web-page runs, from ``eval/document_simulation.py``.
+
+    One file holds every variant of an arm, so the variant goes into
+    ``placement``: grouping on it keeps a hidden-text PDF and a visible one
+    apart, which pairing on ``attack_id`` alone would not.
+    """
+    for row in rows:
+        row.setdefault("target_name", "Mistral 7B (text)")
+        row.setdefault("placement", f"{row.get('arm', 'doc')}/{row.get('variant', '')}")
     return rows
 
 
@@ -795,6 +810,17 @@ def main() -> int:
     sims.update({label: normalise_av_runs(read_jsonl(path))
                  for label, path, kind in SOURCES
                  if kind == "av" and read_jsonl(path)})
+    # One entry per variant. The Summary sheet groups by corpus label, and
+    # merging a file's variants there would pair the same attack across
+    # different documents - the image arms avoid it with a file per variant.
+    for label, path, kind in SOURCES:
+        if kind != "doc":
+            continue
+        by_variant: dict[str, list[dict]] = defaultdict(list)
+        for row in normalise_document_runs(read_jsonl(path)):
+            by_variant[row.get("variant", "")].append(row)
+        sims.update({f"{label} ({variant})": rows
+                     for variant, rows in by_variant.items()})
     detects = {label: read_jsonl(path) for label, path, kind in SOURCES
                if kind == "detect" and read_jsonl(path)}
     benign = {label: read_jsonl(path) for label, path in BENIGN

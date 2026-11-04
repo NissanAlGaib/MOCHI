@@ -124,8 +124,9 @@ _CACHE_MAX = 32
 def _cache_key(block: dict) -> str | None:
     """A stable digest of this block's payload, or ``None`` if unhashable."""
     source = block.get("image_url") or block.get("image") or block.get("input_audio") \
-        or block.get("audio") or block.get("video") or {}
-    raw = source.get("url") or source.get("data") if isinstance(source, dict) else source
+        or block.get("audio") or block.get("video") or block.get("file") or {}
+    raw = (source.get("url") or source.get("data") or source.get("file_data")
+           if isinstance(source, dict) else source)
     if not isinstance(raw, str) or not raw:
         return None
     return f"{block.get('type')}:{hashlib.sha256(raw.encode()).hexdigest()}"
@@ -174,6 +175,7 @@ KINDS = {
     "image_url": "image", "image": "image",
     "input_audio": "audio", "audio": "audio",
     "video": "video", "video_url": "video",
+    "file": "document", "input_file": "document",
 }
 
 
@@ -232,6 +234,81 @@ def convert_attachments(request: Any) -> int:
         if replaced:
             message.content = rebuilt
     return replaced
+
+
+# --- documents --------------------------------------------------------------
+#
+# Until this was registered, a PDF attached to a chat request reached the model
+# with nothing reading it: ``file_extract`` could open PDFs, but no content
+# block was routed to it, so an injection inside an attached document passed
+# every stage untouched - the image problem again, in a different container.
+
+
+def decode_file_block(block: dict) -> tuple[bytes | None, str | None, str | None]:
+    """``(data, mime_type, filename)`` from an OpenAI ``file`` content block.
+
+    The chat format carries the file inline as ``file_data``, usually a data
+    URL (``data:application/pdf;base64,...``) and sometimes bare base64. A
+    block that names only a ``file_id`` refers to a file uploaded to the
+    provider beforehand; its bytes are not in the request, so there is nothing
+    here to read, and the caller reports it as unread rather than clean.
+    """
+    import base64
+    import binascii
+
+    inner = block.get("file") or block.get("input_file") or {}
+    if block.get("type") == "input_file" and not inner:
+        inner = block                           # Responses-API shape, flat
+    if not isinstance(inner, dict):
+        return None, None, None
+    raw = inner.get("file_data")
+    filename = inner.get("filename")
+    if not isinstance(raw, str) or not raw:
+        return None, None, filename
+    mime = None
+    if raw.startswith("data:"):
+        header, _, raw = raw.partition(",")
+        mime = header[5:].split(";")[0] or None
+    try:
+        return base64.b64decode(raw, validate=False), mime, filename
+    except (binascii.Error, ValueError):
+        return None, mime, filename
+
+
+@register("file", "input_file")
+def _file(block: dict) -> Extraction:
+    data, mime, filename = decode_file_block(block)
+    if not data:
+        return Extraction()
+
+    kind, name = (mime or "").lower(), (filename or "").lower()
+    if "html" in kind or name.endswith((".html", ".htm")):
+        # A saved web page: read it the way web_content is read, so a
+        # display:none div or an HTML comment is scanned rather than lost.
+        from mochi.preprocess.html_extract import extract_html
+
+        page = extract_html(data.decode("utf-8", errors="replace"))
+        return Extraction(
+            visible_text=page.visible_text,
+            hidden_text=[*page.hidden_text, *page.comments, *page.attribute_text],
+            flags=list(page.flags),
+            ran=True,
+        )
+
+    from mochi.preprocess.file_extract import extract_file
+
+    found = extract_file(data, mime_type=mime, filename=filename)
+    # Text a reader cannot see - white on white, a zero-size run - extracts
+    # exactly like the rest, so it lands in visible_text and is scanned all
+    # the same. See file_extract's docstring for why visibility is not used
+    # as a signal. Metadata stays separate: the model never renders it, but
+    # ingestion pipelines lift it into the prompt.
+    return Extraction(
+        visible_text=found.body_text,
+        metadata_text=list(found.metadata_text),
+        flags=list(found.flags),
+        ran=found.error is None,
+    )
 
 
 # --- images -----------------------------------------------------------------
