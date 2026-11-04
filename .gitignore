@@ -10,6 +10,8 @@ env/
 __pycache__/
 *.py[cod]
 *.egg-info/
+build/                     # setuptools work directory, left by `pip install .`
+dist/
 .pytest_cache/
 
 # Runtime output

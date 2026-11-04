@@ -41,20 +41,24 @@ This verifies the plumbing. It will not produce a usable model.
 ## Running with the trained model
 
 ```bash
-MOCHI_ENABLE_STAGE2=true python -m uvicorn mochi.gateway.app:app
+python -m uvicorn mochi.gateway.app:app
 python eval/run_detection.py --data data/clean --config stage12
 ```
 
-Stage II is **off by default** (`MOCHI_ENABLE_STAGE2=false`). Enabling it with
-no model present fails at startup with instructions rather than silently
-falling back to Stage I — a gateway that ran one stage while its operator
-believed it ran two would report false coverage.
+Stage II is **on by default**. No flag is needed: it is the detector, and
+Stage I alone measured recall 0.0590. Starting with no model present fails at
+startup with instructions rather than silently falling back to Stage I — a
+gateway that ran one stage while its operator believed it ran two would report
+false coverage.
+
+Set `MOCHI_ENABLE_STAGE2=false` only to measure a Stage-I-only arm, as the
+ablation does.
 
 ## Architecture notes
 
 Three choices differ from the library defaults, each because a measurement said
 the default was wrong. All three are documented at length in
-[`model.py`](model.py) and [`../mochi/detect/stage2_semantic.py`](../mochi/detect/stage2_semantic.py).
+[`../mochi/detect/classifier.py`](../mochi/detect/classifier.py) (re-exported here as `training.model`) and [`../mochi/detect/stage2_semantic.py`](../mochi/detect/stage2_semantic.py).
 
 | Choice | Default | What MOCHI does | Why |
 |---|---|---|---|

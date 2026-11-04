@@ -144,7 +144,7 @@ def score_track_b(validation, test, models_dir: Path):
         report = json.loads((directory / "report.json").read_text(encoding="utf-8"))
         model = BiRNNClassifier(len(vocabulary), cell=cell,
                                 hidden_size=report["config"]["hidden_size"])
-        model.load_state_dict(torch.load(directory / "model.pt", map_location="cpu"))
+        model.load_state_dict(torch.load(directory / "model.pt", map_location="cpu", weights_only=True))
         model.to(device).eval()
 
         def score(texts, _m=model, _v=vocabulary):

@@ -141,11 +141,18 @@ def get_settings() -> Settings:
         log_path=os.getenv("MOCHI_LOG_PATH", "logs/mochi.jsonl").strip(),
         log_payloads=_get_bool("MOCHI_LOG_PAYLOADS", False),
         enable_stage1=_get_bool("MOCHI_ENABLE_STAGE1", True),
-        # Stage II defaults off: it needs torch and a trained model, and the
-        # gateway must start without either. Turning it on with no model in
-        # place raises ModelUnavailable at startup with instructions, rather
-        # than silently degrading to Stage I only.
-        enable_stage2=_get_bool("MOCHI_ENABLE_STAGE2", False),
+        # Stage II defaults ON. It is the detector, not an enhancement: Stage I
+        # alone measured 5.9% recall, so a gateway running without it is not a
+        # lighter MOCHI but one that misses almost everything - and it would do
+        # so silently, which is the worst available failure for a defence.
+        # torch and the weights are therefore install requirements rather than
+        # opt-ins; see pyproject.toml.
+        #
+        # Starting with the flag on and no model raises ModelUnavailable, with
+        # instructions. That is deliberate: failing closed and loudly beats
+        # degrading to Stage I quietly. Set MOCHI_ENABLE_STAGE2=false only to
+        # measure a Stage-I-only arm, which is what the ablation does.
+        enable_stage2=_get_bool("MOCHI_ENABLE_STAGE2", True),
         stage2_model_dir=os.getenv("MOCHI_STAGE2_MODEL_DIR", "").strip(),
         stage2_device=os.getenv("MOCHI_STAGE2_DEVICE", "").strip(),
         # Tagalog content filter defaults off for the same reason Stage II

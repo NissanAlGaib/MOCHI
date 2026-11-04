@@ -65,10 +65,12 @@ that set.
 ASR and Mitigation Rate are functions of the detector's operating point. Running
 the simulation before that operating point is fixed means running it twice.
 
-- **Stage II must be live.** `MOCHI_ENABLE_STAGE2` defaults to `False`
-  (`mochi/gateway/config.py:98`) and `.env` does not override it. A simulation
-  against the current default measures Stage I alone — recall 0.0590 — and would
-  report an ASR near the undefended baseline.
+- **Stage II must be live.** It now defaults to `True`, so the default
+  configuration is the measured one. Historically this defaulted to `False`,
+  and a simulation run against that default measured Stage I alone — recall
+  0.0590 — reporting an ASR near the undefended baseline. Any run predating
+  the default change needs `MOCHI_ENABLE_STAGE2=true` confirmed in its
+  environment before its numbers are trusted.
 - **Thresholds must be sited.** `BENIGN_THRESHOLD` (0.45) and
   `MALICIOUS_THRESHOLD` (0.55) are pre-study placeholders. They decide every
   BLOCK / SANITIZE / ALLOW in the run. `eval/threshold_sweep.py` exists and was

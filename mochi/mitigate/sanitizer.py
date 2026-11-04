@@ -297,12 +297,12 @@ def decide(result: InspectionResult, *,
     # enforced normally. With nothing declared, ``trusted_digests`` is empty and
     # no segment is exempt - the safe default, at the cost of the false
     # positive this guards against.
-    if not enforce_on_trusted and trusted_digests:
-        confident = [
-            (segment, text) for segment, text in confident
-            if not (segment.trust is TrustLevel.TRUSTED
-                    and digest_prompt(segment.raw_text) in trusted_digests)
-        ]
+    def exempt(segment: Segment) -> bool:
+        return (not enforce_on_trusted and segment.trust is TrustLevel.TRUSTED
+                and digest_prompt(segment.raw_text) in trusted_digests)
+
+    confident = [(segment, text) for segment, text in confident
+                 if not exempt(segment)]
 
     if confident:
         guilty = {segment.origin: segment for segment, _ in confident}
@@ -345,8 +345,13 @@ def decide(result: InspectionResult, *,
     # Refusing is the same call ``apply()`` already makes when redaction
     # removes nothing: a payload that cannot be isolated cannot be forwarded
     # safely, so the request is refused rather than passed on unmodified.
+    #
+    # The declared system prompt is exempt here too. It used to be filtered out
+    # of ``confident`` above and then collected again by this branch, so a
+    # declared prompt that tripped Stage I was refused anyway - on every
+    # request, with a reason naming an obfuscation detector that never fired.
     unredactable = [segment for segment, stage1 in result.stage1
-                    if stage1.should_block]
+                    if stage1.should_block and not exempt(segment)]
     if unredactable:
         return Verdict(
             decision=Decision.BLOCK,

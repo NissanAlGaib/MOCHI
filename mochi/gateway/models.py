@@ -20,6 +20,11 @@ SOURCE_TAGS = (
     "web_content",
     "api_response",
     "system_prompt",
+    # Earlier assistant turns, replayed into the conversation. Untrusted: a
+    # model that was steered once can carry the payload into its own reply.
+    # Without this field a tagged request had no way to say so, and replies
+    # were dropped from inspection entirely whenever context was supplied.
+    "assistant_output",
 )
 
 # MOCHI-specific fields that must be stripped before forwarding upstream -
@@ -50,6 +55,7 @@ class TaggedContext(BaseModel):
     web_content: str | None = None
     api_response: str | None = None
     system_prompt: str | None = None
+    assistant_output: str | None = None
 
     def segments(self) -> list[tuple[str, str]]:
         """Return ``(source_tag, text)`` pairs for every populated segment."""

@@ -202,7 +202,7 @@ def main() -> int:
                 json.dumps(vocabulary), encoding="utf-8")
             print(f"  saved (best f1 so far) -> {out}")
 
-    model.load_state_dict(torch.load(out / "model.pt"))
+    model.load_state_dict(torch.load(out / "model.pt", weights_only=True))
     report = {
         "model": f"bi{args.cell}",
         "history": history,

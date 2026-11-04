@@ -39,21 +39,22 @@ WORKDIR /app
 # Dependencies first, so a source change does not reinstall torch.
 COPY requirements.txt ./
 
-# torch and transformers are commented out in requirements.txt on purpose -
-# they are only needed when Stage II is enabled, and the project keeps the
-# base install light. The gateway is not useful without Stage II (Stage I
-# alone measured 5.9% recall), so the image installs them explicitly, from the
-# CPU index.
+# torch is installed first, from the CPU index, and this ordering is
+# load-bearing. requirements.txt now lists torch>=2.4.0 as a hard dependency -
+# Stage I alone measured 5.9% recall, so Stage II is not optional - and the
+# default PyPI wheel is the 4.4 GB CUDA build, of which 4.3 GB is kernels that
+# would never load here. Installing the CPU wheel first means the
+# requirements.txt line below finds the constraint already satisfied and leaves
+# it alone. Reverse the order and the image gains 4 GB of dead CUDA kernels.
 RUN pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.4.0" \
     && pip install "transformers>=4.45.0" \
     && pip install -r requirements.txt
 
 COPY mochi/ ./mochi/
-COPY training/ ./training/
 
-# Stage II imports training.model to rebuild the classifier head, so training/
-# is a runtime dependency despite the name. eval/ is not - it is the
-# evaluation harness and never runs in production.
+# training/ and eval/ are not copied: they produced and measured the weights
+# and never run in production. The classifier Stage II rebuilds lives in
+# mochi.detect.classifier.
 
 # Non-root. The gateway needs no write access beyond its log directory.
 RUN useradd --create-home --uid 10001 mochi \
