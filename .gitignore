@@ -10,7 +10,10 @@ env/
 __pycache__/
 *.py[cod]
 *.egg-info/
-build/                     # setuptools work directory, left by `pip install .`
+# setuptools work directory and built packages, left by `pip install .` and
+# `python -m build`. Comments must be on their own line: git does not strip a
+# trailing "# ..." from a pattern, so "build/  # note" matches nothing.
+build/
 dist/
 .pytest_cache/
 
