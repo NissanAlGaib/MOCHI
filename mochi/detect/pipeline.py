@@ -105,6 +105,19 @@ class InspectionResult:
         return bool(self.blocked_segments)
 
     @property
+    def stage1_blocked_outside_trusted(self) -> bool:
+        """A Stage I block that enforcement cannot exempt.
+
+        A block inside a TRUSTED segment is not yet a verdict: when that
+        segment is the operator's declared system prompt, ``decide()`` exempts
+        it. Treating it as final - skipping Stage II for the whole request -
+        meant a declared defensive prompt that trips Stage I left every other
+        segment, the user's own turn included, checked by Stage I alone.
+        """
+        return any(segment.trust is not TrustLevel.TRUSTED
+                   for segment in self.blocked_segments)
+
+    @property
     def stage1_truncated(self) -> bool:
         """Whether any Stage I scan ran out of budget before finishing."""
         return any(result.truncated for _, result in self.stage1)
@@ -258,8 +271,11 @@ def inspect(request, record: TelemetryRecord, *,
     # --- Stage II: semantic detection ---
     # Fail-fast: a Stage I block is already a verdict, and Stage II is ~100x more
     # expensive. Scoring a request that is going to be rejected anyway buys
-    # nothing but latency.
-    if enable_stage2 and stage2 is not None and not result.stage1_blocked:
+    # nothing but latency. Except in a trusted segment, which may be the
+    # declared system prompt and exempted - so that one does not short-circuit
+    # the rest of the request. See ``stage1_blocked_outside_trusted``.
+    if (enable_stage2 and stage2 is not None
+            and not result.stage1_blocked_outside_trusted):
         with stage_timer(record.latency, "stage_2"):
             result.stage2 = [
                 (segment, stage2.scan(segment.scannable)) for segment in segments
@@ -270,7 +286,7 @@ def inspect(request, record: TelemetryRecord, *,
     # every non-blocked turn: a chain is built out of turns that individually
     # looked fine, so skipping the quiet ones would discard exactly the evidence
     # this is for.
-    if accumulator is not None and not result.stage1_blocked:
+    if accumulator is not None and not result.stage1_blocked_outside_trusted:
         result.session = accumulator.record_turn(
             getattr(request, "session_id", None), turn_risk(result)
         )

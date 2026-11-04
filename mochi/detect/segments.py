@@ -183,11 +183,59 @@ def _attachment_block(block: dict) -> tuple[str, list[str]]:
 
 
 def segment_tagged(context: Any) -> list[Segment]:
-    """Build segments from an explicit ``context`` object."""
+    """Build segments from an explicit ``context`` object.
+
+    The tag is coerced to :class:`SourceTag` so both paths yield the same type.
+    It used to stay a plain ``str`` here while role inference produced the
+    enum, so ``segment.source_tag.value`` worked on one path and raised on the
+    other.
+    """
     return [
-        Segment(source_tag=tag, origin=f"context.{tag}", raw_text=text)
+        Segment(source_tag=SourceTag(tag), origin=f"context.{tag}", raw_text=text)
         for tag, text in context.segments()
     ]
+
+
+#: Tagged text shorter than this is not subtracted from untagged messages.
+#: Subtraction removes text from the principal's own turn before it is
+#: inspected, so it is limited to spans long enough to be a document. A short
+#: tag - "ok", "the" - would otherwise punch holes in unrelated words.
+MIN_SUBTRACT_CHARS = 32
+
+
+def _untagged_message_segments(messages: list[Any], tagged: list[Segment], *,
+                               read_images: bool = False) -> list[Segment]:
+    """Role-inferred segments for the sources ``context`` did not tag.
+
+    Context used to *replace* role inference outright. That made tagging the
+    document alone - the obvious thing a RAG application does - silently stop
+    inspecting the user's own turn and the system prompt: one segment in, two
+    gone. Measured on a request carrying all three, ``context=
+    {"retrieved_document": doc}`` produced exactly one segment.
+
+    So tags stay authoritative for the sources they name, and messages fill in
+    the rest. A source that was tagged is not inferred again, which keeps any
+    request that tags every source it sends - the evaluation's own requests
+    among them - exactly as it was. Text that was tagged is removed from the
+    messages it came from first, so a document pasted into the user turn is
+    inspected once, as the untrusted content it is, rather than a second time
+    as the user's words, which would turn every sanitize into a block.
+    """
+    covered = {segment.source_tag for segment in tagged}
+    pieces = [segment.raw_text for segment in tagged
+              if len(segment.raw_text.strip()) >= MIN_SUBTRACT_CHARS]
+    extra: list[Segment] = []
+    for segment in segment_messages(messages, read_images=read_images):
+        if segment.source_tag in covered:
+            continue
+        text = segment.raw_text
+        for piece in pieces:
+            text = text.replace(piece, " ")
+        if not text.strip():
+            continue
+        segment.raw_text = text
+        extra.append(segment)
+    return extra
 
 
 def segment_messages(messages: list[Any], *,
@@ -220,18 +268,23 @@ def segment_messages(messages: list[Any], *,
 def build_segments(request: Any, *, read_images: bool = False) -> list[Segment]:
     """Segment a parsed chat-completion request and preprocess each piece.
 
-    An explicit ``context`` takes precedence over message-role inference. That
-    is consistent with the threat model: the client application is the
-    developer's own code, not the adversary, so its tagging is trustworthy
-    metadata. The adversary's reach is over the *content* of fetched data,
-    not over how the application labels it.
+    An explicit ``context`` takes precedence over message-role inference for
+    every source it tags. That is consistent with the threat model: the client
+    application is the developer's own code, not the adversary, so its tagging
+    is trustworthy metadata. The adversary's reach is over the *content* of
+    fetched data, not over how the application labels it.
+
+    Sources the context leaves untagged are still inferred from message roles
+    - see :func:`_untagged_message_segments` for why replacing them was wrong.
     """
     context = getattr(request, "context", None)
+    messages = getattr(request, "messages", []) or []
     if context is not None:
         segments = segment_tagged(context)
+        segments += _untagged_message_segments(messages, segments,
+                                               read_images=read_images)
     else:
-        segments = segment_messages(getattr(request, "messages", []) or [],
-                                    read_images=read_images)
+        segments = segment_messages(messages, read_images=read_images)
 
     for segment in segments:
         segment.normalized = preprocess_segment(

@@ -1,8 +1,104 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "mochi"
+# The install name, not the import name - `pip install mochi-guard`, then
+# `import mochi`. They differ because `mochi` is already taken on PyPI (54
+# releases, currently 0.2.7, an unrelated project), so publishing under it is
+# impossible and `pip install mochi` fetches someone else's package. Checked
+# 2026-11-02; mochi-gateway, mochi-middleware and mochi-ai were also free, so
+# this is a one-line choice to revisit.
+name = "mochi-guard"
 version = "0.1.0"
 description = "Middleware for Observing, Classifying, and Handling Prompt Injections"
+readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Hans Adrian A. Lao" },
+    { name = "Jelaine May C. Macias" },
+    { name = "Rosepel M. Maglangit" },
+]
+keywords = ["prompt-injection", "llm", "security", "middleware", "taglish", "code-switching"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+# `pip install mochi-guard` installs a MOCHI that works. That includes Stage II:
+# it is not an add-on, it is the detector - Stage I alone measured 5.9% recall,
+# so a build without Stage II is not a lighter MOCHI, it is a broken one. torch
+# costs ~2.5 GB, and that is the price of the thing working.
+#
+# Splitting it out behind an extra was a mistake: the reasoning lives in a
+# comment in requirements.txt, and nobody installing a wheel reads that file.
+# The default must be the configuration that detects.
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "httpx>=0.27.0",
+    "pydantic>=2.9.0",
+    "python-dotenv>=1.0.1",
+    "beautifulsoup4>=4.12.0",   # html_extract imports this at import time
+    "torch>=2.4.0",
+    "transformers>=4.45.0",
+]
+
+[project.optional-dependencies]
+# Attachment inspection: OCR for images, text for PDFs, speech for audio and
+# video. Each degrades to "no text found" rather than raising when absent, so
+# these stay optional - a deployment that only ever sees text should not carry
+# three extra runtimes.
+all = [
+    "rapidocr_onnxruntime>=1.3",
+    "pdfplumber>=0.11.0",
+    "faster-whisper>=1.0",
+    "mutagen>=1.47",
+]
+
+# Kept separate from `all` because installing it is not sufficient: the tl<->en
+# package has to be downloaded once afterwards (see requirements.txt), so
+# bundling it would leave a half-configured filter. Off at runtime unless
+# MOCHI_ENABLE_TAGALOG_TRANSLATION=true.
+tagalog = ["argostranslate>=1.11.0", "wordfreq>=3.1.0"]
+
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=5.0.0",
+    "pytest-html>=4.1.0",
+    "openpyxl>=3.1",            # eval/export_simulation.py only
+]
+
+[project.urls]
+Homepage = "https://github.com/NissanAlGaib/MOCHI"
+Source = "https://github.com/NissanAlGaib/MOCHI"
+Issues = "https://github.com/NissanAlGaib/MOCHI/issues"
+
+[project.scripts]
+mochi-gateway = "mochi.gateway.app:main"
+
+[tool.setuptools.package-data]
+# patterns.json holds Stage I's 61 regex and 13 flag rules. Without it an
+# installed MOCHI imports cleanly and then raises PatternError on the first
+# request, because stage1_syntactic resolves the file relative to the package
+# directory. A wheel that ships the code and not the rules detects nothing.
+mochi = ["patterns.json"]
+
+[tool.setuptools.packages.find]
+# Only mochi ships. The classifier Stage II needs to load its weights is
+# mochi.detect.classifier; training/, eval/ and showcase/ are the harness that
+# produced and measured those weights, and a top-level package named
+# "training" in a user's site-packages would collide with other projects.
+include = ["mochi*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

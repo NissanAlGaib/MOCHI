@@ -41,11 +41,15 @@ importing MOCHI never costs a 2 GB dependency it may not need.
 
 from __future__ import annotations
 
+import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, Sequence, runtime_checkable
 
 from mochi.detect.chunking import Chunk, chunk_text, token_budget_to_chars
+
+logger = logging.getLogger(__name__)
 
 #: E5 context window.
 MAX_TOKENS = 512
@@ -75,12 +79,112 @@ MAX_WINDOWS = 32
 #: How many attributed tokens to report per detection.
 TOP_TOKENS = 8
 
-#: Where ``training/finetune_e5.py`` exports weights to.
+#: Where ``training/finetune_e5.py`` exports weights to. It exists in a clone
+#: that has the weights, and is the first place looked. In an installed package
+#: it resolves to ``site-packages/models/e5-fine-tuned``, which never exists -
+#: so it is a first choice, never the only one.
 DEFAULT_MODEL_DIR = Path(__file__).resolve().parents[2] / "models" / "e5-fine-tuned"
+
+#: The published weights, fetched on first use when no local copy exists, and
+#: cached by huggingface_hub so only the first start needs the network.
+#: ``None`` until the weights are published.
+#:
+#: The revision is a commit hash, never a branch. A branch would let a
+#: re-upload change the detector under every installed copy without a
+#: release, and Chapter IV's numbers describe one exact set of weights.
+DEFAULT_MODEL_REPO: str | None = None
+DEFAULT_MODEL_REVISION: str | None = None
+
+#: Marks a model setting as a Hugging Face repository rather than a path.
+#: Explicit because ``models/e5-fine-tuned`` and ``owner/name`` are the same
+#: shape: a local folder that is missing must fail as missing, not be fetched
+#: from whoever happens to own a repository by that name.
+HUB_PREFIX = "hf:"
+
+#: The files the loader reads. A download fetches these and nothing else.
+MODEL_FILES = ("config.json", "model.safetensors", "tokenizer.json",
+               "tokenizer_config.json", "mochi_head.json", "mochi_head.pt")
 
 
 class ModelUnavailable(RuntimeError):
     """Raised when Stage II is enabled but no usable model can be loaded."""
+
+
+_NO_MODEL_HELP = (
+    "Set MOCHI_STAGE2_MODEL_DIR (read by both the proxy and the wrapper) to\n"
+    "  either a folder holding the weights, or hf:owner/name@revision to\n"
+    "  download them. Or run with MOCHI_ENABLE_STAGE2=false to skip Stage II,\n"
+    "  which leaves Stage I alone - recall 0.059 - and is not a deployment."
+)
+
+
+def resolve_model_dir(spec: str | Path | None) -> Path:
+    """The local folder to load Stage II from, downloading it if needed.
+
+    ``spec`` is, in order of precedence:
+
+    1. ``hf:owner/name@revision`` - fetched from the Hugging Face Hub.
+    2. Anything else - a local folder, used as given.
+    3. Nothing - then ``MOCHI_STAGE2_MODEL_DIR`` if set, read here so the
+       wrapper honours the same setting the proxy does; then the clone's
+       ``models/e5-fine-tuned`` if it exists; then the published weights at
+       :data:`DEFAULT_MODEL_REPO`.
+
+    Whatever is resolved must hold every file in :data:`MODEL_FILES`; a
+    partial folder is reported by name rather than surfacing later as a
+    tokenizer error that does not mention MOCHI.
+    """
+    if not spec:
+        spec = os.environ.get("MOCHI_STAGE2_MODEL_DIR", "").strip() or None
+    if spec is not None and str(spec).startswith(HUB_PREFIX):
+        repo, _, revision = str(spec)[len(HUB_PREFIX):].partition("@")
+        path = _download(repo, revision or None)
+    elif spec:
+        path = Path(spec)
+        if not path.exists():
+            raise ModelUnavailable(f"No Stage II model at {path}.\n{_NO_MODEL_HELP}")
+    elif DEFAULT_MODEL_DIR.exists():
+        path = DEFAULT_MODEL_DIR
+    elif DEFAULT_MODEL_REPO:
+        path = _download(DEFAULT_MODEL_REPO, DEFAULT_MODEL_REVISION)
+    else:
+        raise ModelUnavailable(
+            f"No Stage II model found, and none is published to download.\n"
+            f"Looked in {DEFAULT_MODEL_DIR}.\n{_NO_MODEL_HELP}")
+
+    missing = [name for name in MODEL_FILES if not (path / name).exists()]
+    if missing:
+        raise ModelUnavailable(
+            f"Stage II model at {path} is incomplete - missing "
+            f"{', '.join(missing)}.\n{_NO_MODEL_HELP}")
+    return path
+
+
+def _download(repo: str, revision: str | None) -> Path:
+    """Fetch the weights into the Hugging Face cache and return that folder.
+
+    Cached after the first call, so a restart does not download again. An
+    unpinned request is allowed - it is how someone tries a new upload - but
+    logged, because whatever ``main`` points at tomorrow is what it will load.
+    """
+    if not revision:
+        logger.warning("Stage II weights %s are not pinned to a revision; "
+                       "a re-upload will change the detector. Use "
+                       "hf:%s@<commit>.", repo, repo)
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError as exc:  # installed with transformers, so rare
+        raise ModelUnavailable(
+            "Downloading Stage II weights needs huggingface_hub:\n"
+            "  pip install huggingface_hub") from exc
+    try:
+        return Path(snapshot_download(repo_id=repo, revision=revision,
+                                      allow_patterns=list(MODEL_FILES)))
+    except Exception as exc:  # network, auth, unknown repo or revision
+        raise ModelUnavailable(
+            f"Could not download Stage II weights {repo}@{revision or 'main'}: "
+            f"{exc}\nOn a machine without internet access, download the "
+            f"folder elsewhere and point MOCHI_STAGE2_MODEL_DIR at it.") from exc
 
 
 @runtime_checkable
@@ -246,7 +350,10 @@ class E5Scorer:
 
     def __init__(self, model_dir: str | Path | None = None, *,
                  device: str | None = None) -> None:
-        self.model_dir = Path(model_dir or DEFAULT_MODEL_DIR)
+        self._spec = model_dir
+        self.model_dir: Path | None = None
+        """The folder actually loaded from. Set on first use, because resolving
+        it may mean a download, and constructing a scorer should not."""
         self._device = device
         self._model = None
         self._tokenizer = None
@@ -255,12 +362,8 @@ class E5Scorer:
     def _load(self) -> None:
         if self._model is not None:
             return
-        if not self.model_dir.exists():
-            raise ModelUnavailable(
-                f"No Stage II model at {self.model_dir}.\n"
-                "Train one first:  see training/README.md (Colab GPU, ~20 min)\n"
-                "Or run with MOCHI_ENABLE_STAGE2=false to skip Stage II."
-            )
+        # Imports first: they are instant, and a missing torch should not be
+        # discovered after a 468 MB download.
         try:
             import torch
             from transformers import AutoTokenizer
@@ -271,7 +374,9 @@ class E5Scorer:
                 "Or run with MOCHI_ENABLE_STAGE2=false."
             ) from exc
 
-        from training.model import InjectionClassifier  # local, torch-dependent
+        self.model_dir = resolve_model_dir(self._spec)
+
+        from mochi.detect.classifier import InjectionClassifier  # torch-dependent
 
         self._torch = torch
         self._device = self._device or ("cuda" if torch.cuda.is_available() else "cpu")

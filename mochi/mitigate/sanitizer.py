@@ -297,12 +297,12 @@ def decide(result: InspectionResult, *,
     # enforced normally. With nothing declared, ``trusted_digests`` is empty and
     # no segment is exempt - the safe default, at the cost of the false
     # positive this guards against.
-    if not enforce_on_trusted and trusted_digests:
-        confident = [
-            (segment, text) for segment, text in confident
-            if not (segment.trust is TrustLevel.TRUSTED
-                    and digest_prompt(segment.raw_text) in trusted_digests)
-        ]
+    def exempt(segment: Segment) -> bool:
+        return (not enforce_on_trusted and segment.trust is TrustLevel.TRUSTED
+                and digest_prompt(segment.raw_text) in trusted_digests)
+
+    confident = [(segment, text) for segment, text in confident
+                 if not exempt(segment)]
 
     if confident:
         guilty = {segment.origin: segment for segment, _ in confident}
@@ -345,8 +345,13 @@ def decide(result: InspectionResult, *,
     # Refusing is the same call ``apply()`` already makes when redaction
     # removes nothing: a payload that cannot be isolated cannot be forwarded
     # safely, so the request is refused rather than passed on unmodified.
+    #
+    # The declared system prompt is exempt here too. It used to be filtered out
+    # of ``confident`` above and then collected again by this branch, so a
+    # declared prompt that tripped Stage I was refused anyway - on every
+    # request, with a reason naming an obfuscation detector that never fired.
     unredactable = [segment for segment, stage1 in result.stage1
-                    if stage1.should_block]
+                    if stage1.should_block and not exempt(segment)]
     if unredactable:
         return Verdict(
             decision=Decision.BLOCK,
@@ -500,10 +505,17 @@ def _merge(regions: list[tuple[int, int]]) -> list[tuple[int, int]]:
     return merged
 
 
-def _redact(text: str, spans: list[str]) -> tuple[str, int]:
+def _redact(text: str, spans: list[str]) -> tuple[str, int, int]:
     """Replace the sentences containing any span with the marker.
 
-    Returns the rewritten text and how many distinct regions were removed.
+    Returns the rewritten text, how many distinct regions were removed, and
+    how many characters those regions held.
+
+    The character count is reported separately because it cannot be recovered
+    afterwards by comparing lengths: each removal inserts a 36-character
+    marker, so a message whose every character was redacted still measures as
+    only partly shorter. The budget in :func:`apply` depends on knowing what
+    was actually deleted, not on what the length difference suggests.
     """
     regions: list[tuple[int, int]] = []
     for span in {s for s in spans if s}:
@@ -513,18 +525,20 @@ def _redact(text: str, spans: list[str]) -> tuple[str, int]:
             position = text.find(span, position + len(span))
 
     if not regions:
-        return text, 0
+        return text, 0, 0
 
     merged = _merge(regions)
     out: list[str] = []
     cursor = 0
+    deleted = 0
     for start, end in merged:
         out.append(text[cursor:start])
         out.append(REDACTION_MARKER)
+        deleted += end - start
         cursor = end
     out.append(text[cursor:])
     # Expansion can leave doubled separators where a whole sentence went.
-    return re.sub(r"\s{2,}", " ", "".join(out)).strip(), len(merged)
+    return re.sub(r"\s{2,}", " ", "".join(out)).strip(), len(merged), deleted
 
 
 def apply(request: Any, verdict: Verdict) -> Verdict:
@@ -550,24 +564,27 @@ def apply(request: Any, verdict: Verdict) -> Verdict:
     total_removed = 0
     chars_before = 0
     chars_after = 0
+    chars_deleted = 0
 
     for message in getattr(request, "messages", []) or []:
         content = message.content
         if isinstance(content, str):
             chars_before += len(content)
-            new_content, removed = _redact(content, spans)
+            new_content, removed, deleted = _redact(content, spans)
             if removed:
                 message.content = new_content
                 total_removed += removed
+                chars_deleted += deleted
             chars_after += len(message.content)
         elif isinstance(content, list):
             for block in content:
                 if isinstance(block, dict) and isinstance(block.get("text"), str):
                     chars_before += len(block["text"])
-                    new_text, removed = _redact(block["text"], spans)
+                    new_text, removed, deleted = _redact(block["text"], spans)
                     if removed:
                         block["text"] = new_text
                         total_removed += removed
+                        chars_deleted += deleted
                     chars_after += len(block["text"])
 
     verdict.spans_removed = total_removed
@@ -586,7 +603,15 @@ def apply(request: Any, verdict: Verdict) -> Verdict:
     # that included the same payload against a longer document, which had
     # enough surrounding context to absorb it. Volume relative to document
     # length is the risk, not redaction itself.
-    share = (chars_before - chars_after) / chars_before if chars_before else 0.0
+    # Measured on what was deleted, not on how much shorter the text got.
+    # Each removal inserts a 36-character marker, so the length difference
+    # understates the cut by 36 per region - on a short segment, enormously:
+    # a 63-character message that was entirely payload measured as 42.9%
+    # removed and passed a 50% budget while forwarding nothing but a marker.
+    # Unreachable today, because only untrusted segments are sanitised and
+    # those are documents, but it fails in the direction that forwards a
+    # gutted request rather than refusing it.
+    share = chars_deleted / chars_before if chars_before else 0.0
     if total_removed and share > MAX_REDACTION_SHARE:
         verdict.decision = Decision.BLOCK
         verdict.escalated = True

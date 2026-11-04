@@ -20,7 +20,7 @@ from mochi.detect import inspect
 from mochi.detect.stage2_semantic import Stage2Detector
 from mochi.gateway.app import app
 from mochi.gateway.models import ChatCompletionRequest
-from mochi.mitigate import Decision, enforce
+from mochi.mitigate import Decision, decide, enforce
 from mochi.session import (
     DEFAULT_THRESHOLD,
     DEFAULT_WINDOW,
@@ -318,8 +318,17 @@ def test_blocked_turn_is_not_accumulated() -> None:
 CHAIN_SCORES = (0.38, 0.41, 0.43)
 
 
-def run_chain(scores, session_id: str, *, tagged: bool = False, **kwargs):
-    """Play a sequence of turns through inspect + enforce, returning verdicts."""
+def run_chain(scores, session_id: str, *, tagged: bool = False,
+              apply_: bool = True, **kwargs):
+    """Play a sequence of turns through inspect + enforce, returning verdicts.
+
+    ``apply_=False`` stops at :func:`decide`, which is what a test about how
+    the *policy* resolves should assert on. Carrying on into :func:`apply`
+    brings the redaction budget in, and a stubbed scorer attributes no
+    tokens - so redaction cannot isolate a sentence and removes the whole
+    window, which always exceeds the budget and escalates to BLOCK. That
+    escalation is about segment length, not about accumulation.
+    """
     accumulator = kwargs.pop("accumulator", None) or RiskAccumulator(threshold=1.0)
     scorer = ScoreScorer(0.0, needle="restructure")
     stage2 = Stage2Detector(scorer)
@@ -339,7 +348,8 @@ def run_chain(scores, session_id: str, *, tagged: bool = False, **kwargs):
         record = TelemetryRecord()
         result = inspect(request, record, accumulator=accumulator,
                          enable_stage2=True, stage2=stage2, **kwargs)
-        verdicts.append(enforce(request, result))
+        verdicts.append(enforce(request, result) if apply_
+                        else decide(result))
     return verdicts
 
 
@@ -365,7 +375,8 @@ def test_chain_through_untrusted_content_is_sanitized_not_blocked() -> None:
     The attacker controls the fetched page, not the user's request, so the
     payload is removed and the real question still gets served.
     """
-    verdicts = run_chain(CHAIN_SCORES, "indirect-chain", tagged=True)
+    verdicts = run_chain(CHAIN_SCORES, "indirect-chain", tagged=True,
+                         apply_=False)
     assert verdicts[-1].decision is Decision.SANITIZE
     assert verdicts[0].decision is Decision.ALLOW
 

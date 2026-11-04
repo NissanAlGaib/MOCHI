@@ -46,6 +46,11 @@ import pytest
 #: regressions rather than isolate irrelevant ones.
 TEST_ENVIRONMENT = {
     "MOCHI_ENABLE_STAGE1": "true",
+    # The one deliberate divergence from the shipped defaults. Stage II
+    # defaults ON in config.py, but the suite runs against stub scorers so it
+    # needs neither torch weights nor 468 MB of model. Pinned off here, and
+    # test_config.py::test_stage2_is_on_by_default guards the real default so
+    # this line cannot hide a regression in it.
     "MOCHI_ENABLE_STAGE2": "false",
     "MOCHI_ENABLE_TAGALOG_TRANSLATION": "false",
     "MOCHI_ENABLE_SESSION_RISK": "true",

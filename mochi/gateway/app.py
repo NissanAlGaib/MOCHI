@@ -107,8 +107,12 @@ async def lifespan(app: FastAPI):
         app.state.stage2 = get_stage2(settings.stage2_model_dir or None,
                                       device=settings.stage2_device or None)
         app.state.stage2.scorer.score(["warmup"])  # surface load errors now
+        # The resolved folder, not the setting: with no setting it may be the
+        # clone's models/ or a download in the Hugging Face cache, and an
+        # operator needs to know which weights are actually answering.
         logger.info("Stage II enabled - model=%s device=%s",
-                    settings.stage2_model_dir or "models/e5-fine-tuned",
+                    getattr(app.state.stage2.scorer, "model_dir", None)
+                    or settings.stage2_model_dir,
                     settings.stage2_device or "auto")
 
     # Same eager-load, fail-fast reasoning as Stage II above: a deployer who
