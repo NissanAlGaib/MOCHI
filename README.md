@@ -20,16 +20,16 @@ Hans Adrian A. Lao, Jelaine May C. Macias, Rosepel M. Maglangit.
 | 4 | Source tagging & payload parsing | ✅ Done |
 | 5 | Evaluation harness | ✅ Done |
 | 6 | Stage I — syntactic filtering | ✅ Done |
-| 6.5 | Feature extraction layer | ⬜ Next |
+| 6.5 | Feature extraction layer | ✅ Done — `mochi/preprocess/features.py`, hybrid ablation |
 | 7 | Session risk accumulator | ✅ Done |
 | 8 | Stage II — semantic detection | ✅ Done — fine-tuned `multilingual-e5-small` |
-| 8.5 | BiLSTM / BiGRU baselines | ⬜ |
+| 8.5 | BiLSTM / BiGRU baselines | ✅ Done — compared against E5 in the results workbook |
 | 9 | Stage III — cognitive arbitration | ⬛ Omitted by design (register Q7) |
 | 10 | Enforcement & sanitization | ✅ Done |
 | 11 | Outbound interception | ✅ Done |
 | 12 | Multi-provider adapters | ⬜ |
 | 13 | Full evaluation | ⬜ |
-| 14 | Packaging | 🟡 `pip install` works; weights not yet hosted for auto-download |
+| 14 | Packaging | ✅ `pip install` works; weights download on first start |
 
 See [docs/BUILD_PLAN.md](docs/BUILD_PLAN.md) for what each phase entails and
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the system design.
@@ -48,22 +48,23 @@ taken on PyPI by an unrelated project.) Stage II and torch come with it,
 because MOCHI without Stage II detects almost nothing (Stage I alone:
 recall 0.059).
 
-### 2. Model weights
+### 2. Model weights: nothing to do
 
-Stage II needs its trained weights, 468 MB, which are not part of the package.
-MOCHI looks for them in this order:
+Stage II's trained weights (468 MB) are not inside the package; MOCHI
+downloads them from Hugging Face,
+[`Athelstan05/Mochi`](https://huggingface.co/Athelstan05/Mochi), the first
+time it starts (about 20 seconds), and loads them from the local cache after
+that, offline included. The download is pinned to one commit, so every install
+runs exactly the weights measured in the thesis.
 
-1. `MOCHI_STAGE2_MODEL_DIR` (proxy) or `stage2_model_dir=` (wrapper), if set:
-   a folder, or `hf:owner/name@revision` to download from Hugging Face.
+MOCHI uses the first of these that exists:
+
+1. `stage2_model_dir=` (wrapper) or `MOCHI_STAGE2_MODEL_DIR` (both): a folder,
+   or `hf:owner/name@revision`.
 2. `models/e5-fine-tuned` in a clone of this repository.
-3. The published weights, downloaded once on first start and cached.
+3. The published weights, downloaded once and cached.
 
-**Step 3 is not live yet.** The weights still have to be uploaded to Hugging
-Face and the revision pinned in `mochi/detect/stage2_semantic.py`
-(`DEFAULT_MODEL_REPO`, `DEFAULT_MODEL_REVISION`). Until then, point step 1 at a
-copy of the folder.
-
-On a machine without internet access, download the folder elsewhere and point
+For a machine without internet access, copy the folder over and point
 `MOCHI_STAGE2_MODEL_DIR` at it. Without weights, MOCHI refuses to start rather
 than quietly running Stage I alone.
 

@@ -87,13 +87,14 @@ DEFAULT_MODEL_DIR = Path(__file__).resolve().parents[2] / "models" / "e5-fine-tu
 
 #: The published weights, fetched on first use when no local copy exists, and
 #: cached by huggingface_hub so only the first start needs the network.
-#: ``None`` until the weights are published.
+#: These are ``models/e5-fine-tuned``, uploaded 2026-11-05; every file was
+#: checked byte-for-byte against the local copy after the upload.
 #:
 #: The revision is a commit hash, never a branch. A branch would let a
 #: re-upload change the detector under every installed copy without a
 #: release, and Chapter IV's numbers describe one exact set of weights.
-DEFAULT_MODEL_REPO: str | None = None
-DEFAULT_MODEL_REVISION: str | None = None
+DEFAULT_MODEL_REPO: str | None = "Athelstan05/Mochi"
+DEFAULT_MODEL_REVISION: str | None = "243ba3219f337fb1fa640f41386a1a5d1980bd69"
 
 #: Marks a model setting as a Hugging Face repository rather than a path.
 #: Explicit because ``models/e5-fine-tuned`` and ``owner/name`` are the same

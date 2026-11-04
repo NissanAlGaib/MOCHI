@@ -8,6 +8,7 @@ machine with no weights and no network.
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 import pytest
@@ -106,6 +107,13 @@ def test_an_installed_package_downloads_the_published_weights(
     resolve_model_dir(None)
     assert downloads[0]["repo_id"] == "acme/mochi-e5"
     assert downloads[0]["revision"] == "abc123"
+
+
+def test_the_published_weights_are_pinned_to_a_commit() -> None:
+    """A branch name would let a re-upload swap the detector under every
+    installed copy; only a full commit hash names one exact set of weights."""
+    assert s2.DEFAULT_MODEL_REPO
+    assert re.fullmatch(r"[0-9a-f]{40}", s2.DEFAULT_MODEL_REVISION or "")
 
 
 def test_with_nothing_local_and_nothing_published_the_error_says_what_to_do(
