@@ -487,6 +487,17 @@ def sheet_summary(wb, sims, detects, benign, taglish, extra):
         "detection refuses the request rather than redacting it. Their "
         "verdict rows are present — the harness began recording them on "
         "2026-10-20 and both arms were re-run.",
+        "The PDF arms have no leakage rate for the same reason: an attached "
+        "file arrives in the user's own turn. The web-page arms do, because "
+        "a fetched page is a tool message and MOCHI redacts it. Their 0% for "
+        "the hidden and comment variants is NOT evidence that redaction "
+        "holds: those payloads sat at the foot of the page, where the target "
+        "never followed them even undefended (0 dangerous attacks), so "
+        "nothing redacted could have leaked. Only the visible variant, 0 of "
+        "11, tests it. Many web-page detections were refused rather than "
+        "redacted - MOCHI marks text in the flattened page, which often does "
+        "not appear verbatim in the raw HTML, and fails safe when it cannot "
+        "find what to cut.",
         "Those re-runs carry the scaling pass, which reads each image again "
         "at a vision encoder's input resolution. It changes neither arm — "
         "87.5% and 75.0%, identical to before it existed — and that is the "
