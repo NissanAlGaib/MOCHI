@@ -92,6 +92,14 @@ Keep three metrics, named so each is unambiguous:
 collide. Other defensible names: *sanitization bypass rate*, *residual attack
 rate*. The name matters less than not calling it FPR.
 
+> **Correction, 2026-11-11.** This misread the request. The metric asked for
+> is the **false-negative rate**: of the malicious prompts, how many did MOCHI
+> mark as safe (verdict ALLOW)? Denominator: all attacks, each counted once.
+> `eval/metrics.false_negatives` replaces `enforcement_leakage`, and the
+> workbook reports it for every corpus. The flagged-but-still-worked counts
+> the leakage metric gave remain in the workbook's per-verdict breakdown
+> (SANITIZE rows).
+
 ### Why I may be wrong
 
 The adviser may have meant "we should also measure this" rather than "replace

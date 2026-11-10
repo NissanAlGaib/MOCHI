@@ -124,13 +124,12 @@ class ImageRun:
     mitigation_action: str | None = None
     """ALLOW, SANITIZE or BLOCK, read from MOCHI's own telemetry.
 
-    Added 2026-10-20. Without it the enforcement-leakage metric cannot be
-    computed for the image arms: HTTP status separates a refusal from
-    everything else, but a sanitised request and an untouched one both return
-    200, and leakage is specifically about the sanitised path. Runs recorded
-    before this date have ``None`` here, and ``eval.metrics`` skips them
-    rather than guessing - treating a missing verdict as ALLOW would invent a
-    leak rate for a corpus that cannot support one."""
+    Added 2026-10-20. Without it the false-negative rate cannot be computed
+    for the image arms: HTTP status separates a refusal from everything else,
+    but a sanitised request and an untouched one both return 200, and a false
+    negative is specifically the untouched one (ALLOW). Runs recorded before
+    this date have ``None`` here, and ``eval.metrics`` skips them rather than
+    guessing - treating a missing verdict as ALLOW would invent misses."""
 
     latency_ms: float | None = None
     error: str = ""
@@ -230,7 +229,7 @@ def run_one(item: AttackItem, png: bytes, *, variant: str,
     # Note the log position before dispatching, so the verdict can be matched
     # to this request rather than to whatever else the gateway handled.
     # Reuses the text harness's reader instead of a second implementation -
-    # the two must agree on what a verdict is, or the leakage metric means
+    # the two must agree on what a verdict is, or the false-negative rate means
     # different things in different tables.
     offset = telemetry_offset() if defended else 0
 
