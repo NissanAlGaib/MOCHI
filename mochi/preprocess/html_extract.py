@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from bs4 import BeautifulSoup, Comment
+from bs4 import BeautifulSoup, CData, Comment, NavigableString, Tag
 
 from mochi.preprocess.flags import NormalizationFlag as F
 
@@ -38,6 +38,27 @@ TEXT_BEARING_ATTRS = ("alt", "title", "aria-label", "placeholder", "data-tooltip
 
 #: Tags whose content is never prose and would only add noise.
 NON_CONTENT_TAGS = ("script", "style", "noscript")
+
+#: Elements that start a new line when rendered. Text in two different ones is
+#: joined with a newline, which the sentence splitter treats as a boundary;
+#: text inside one (``Posted by <b>maria</b>``) is joined with a space. Joining
+#: everything with a space ran a post's author line, a heading and the page
+#: title into one "sentence", so a payload in one element dragged its
+#: neighbours into the same redaction.
+BLOCK_TAGS = frozenset({
+    "address", "article", "aside", "blockquote", "body", "caption", "dd",
+    "details", "dialog", "div", "dl", "dt", "fieldset", "figcaption",
+    "figure", "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6", "head",
+    "header", "hr", "html", "li", "main", "nav", "ol", "p", "pre", "section",
+    "summary", "table", "tbody", "td", "tfoot", "th", "thead", "title", "tr",
+    "ul",
+})
+
+#: The string types ``get_text`` reads: page text, not comments, doctypes or
+#: script bodies.
+TEXT_TYPES = (NavigableString, CData)
+
+_SPACE = re.compile(r"\s+")
 
 
 @dataclass
@@ -69,6 +90,50 @@ class HTMLExtraction:
 
 def _is_hidden(style: str) -> bool:
     return any(pattern.search(style) for pattern in HIDING_PATTERNS)
+
+
+def _block_of(node: NavigableString) -> Tag | None:
+    return next((parent for parent in node.parents
+                 if isinstance(parent, Tag) and parent.name in BLOCK_TAGS), None)
+
+
+def lay_out(nodes) -> list[tuple[NavigableString, str, int]]:
+    """Text nodes as MOCHI reads them: ``(node, text, start)`` per node.
+
+    ``text`` is the node's string with whitespace collapsed and stripped;
+    ``start`` is where it begins in :func:`join_layout`'s result. Empty nodes
+    are skipped. The sanitiser's page redaction uses this same layout, which
+    is what lets it find a detected span in the page it was read from.
+    """
+    laid: list[tuple[NavigableString, str, int]] = []
+    cursor = 0
+    for node in nodes:
+        if type(node) not in TEXT_TYPES:
+            continue
+        text = _SPACE.sub(" ", str(node)).strip()
+        if not text:
+            continue
+        if laid:
+            cursor += 1                       # the one-character separator
+        laid.append((node, text, cursor))
+        cursor += len(text)
+    return laid
+
+
+def join_layout(laid: list[tuple[NavigableString, str, int]]) -> str:
+    """Join laid-out nodes: a newline between block elements, else a space."""
+    out: list[str] = []
+    previous = None
+    for node, text, _ in laid:
+        if out:
+            out.append("\n" if _block_of(node) is not _block_of(previous) else " ")
+        out.append(text)
+        previous = node
+    return "".join(out)
+
+
+def text_of(nodes) -> str:
+    return join_layout(lay_out(nodes))
 
 
 def looks_like_html(text: str) -> bool:
@@ -109,13 +174,13 @@ def extract_html(html: str) -> HTMLExtraction:
     for element in soup.find_all(style=True):
         style = element.get("style", "")
         if isinstance(style, str) and _is_hidden(style):
-            text = element.get_text(separator=" ", strip=True)
+            text = text_of(element.descendants)
             if text:
                 result.hidden_text.append(text)
             element.decompose()
     # The `hidden` boolean attribute has the same effect as display:none.
     for element in soup.find_all(hidden=True):
-        text = element.get_text(separator=" ", strip=True)
+        text = text_of(element.descendants)
         if text:
             result.hidden_text.append(text)
         element.decompose()
@@ -127,5 +192,5 @@ def extract_html(html: str) -> HTMLExtraction:
         for element in soup.find_all(tag_name):
             element.decompose()
 
-    result.visible_text = soup.get_text(separator=" ", strip=True)
+    result.visible_text = text_of(soup.descendants)
     return result

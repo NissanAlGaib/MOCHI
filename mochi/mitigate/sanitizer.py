@@ -42,6 +42,8 @@ from typing import Any
 from mochi.detect.pipeline import InspectionResult
 from mochi.detect.segments import Segment, TrustLevel
 from mochi.detect.stage2_semantic import BENIGN_THRESHOLD, MALICIOUS_THRESHOLD
+from mochi.mitigate.html_redact import redact_html
+from mochi.preprocess.html_extract import looks_like_html
 from mochi.telemetry import MitigationAction
 
 #: Minimum Stage II score for a segment to be considered the guilty one once
@@ -541,6 +543,26 @@ def _redact(text: str, spans: list[str]) -> tuple[str, int, int]:
     return re.sub(r"\s{2,}", " ", "".join(out)).strip(), len(merged), deleted
 
 
+def _redact_content(text: str, spans: list[str]) -> tuple[str, int, int, int]:
+    """Redact one message's text, as a web page when it is one.
+
+    Returns what :func:`_redact` does plus the length the redaction budget is
+    measured against. A page is tried page-aware first, not only after a
+    plain search fails: the spans were read out of its text, where a plain
+    search often cannot find them, and where it can, widening the match to
+    its sentence in the source runs across tags and cuts markup. The budget
+    for a page is a share of its text, because markup is not context the
+    model answers from.
+    """
+    if looks_like_html(text):
+        page, removed, deleted, measured = redact_html(
+            text, spans, marker=REDACTION_MARKER, expand=_expand_to_sentence)
+        if removed:
+            return page, removed, deleted, measured
+    new_text, removed, deleted = _redact(text, spans)
+    return new_text, removed, deleted, len(text)
+
+
 def apply(request: Any, verdict: Verdict) -> Verdict:
     """Carry out a SANITIZE verdict against ``request``, in place.
 
@@ -563,29 +585,27 @@ def apply(request: Any, verdict: Verdict) -> Verdict:
     spans = [text for _, text in verdict.targets]
     total_removed = 0
     chars_before = 0
-    chars_after = 0
     chars_deleted = 0
 
     for message in getattr(request, "messages", []) or []:
         content = message.content
         if isinstance(content, str):
-            chars_before += len(content)
-            new_content, removed, deleted = _redact(content, spans)
+            new_content, removed, deleted, measured = _redact_content(content, spans)
+            chars_before += measured
             if removed:
                 message.content = new_content
                 total_removed += removed
                 chars_deleted += deleted
-            chars_after += len(message.content)
         elif isinstance(content, list):
             for block in content:
                 if isinstance(block, dict) and isinstance(block.get("text"), str):
-                    chars_before += len(block["text"])
-                    new_text, removed, deleted = _redact(block["text"], spans)
+                    new_text, removed, deleted, measured = _redact_content(
+                        block["text"], spans)
+                    chars_before += measured
                     if removed:
                         block["text"] = new_text
                         total_removed += removed
                         chars_deleted += deleted
-                    chars_after += len(block["text"])
 
     verdict.spans_removed = total_removed
     verdict.redacted_origins = sorted({segment.origin for segment, _ in verdict.targets})
