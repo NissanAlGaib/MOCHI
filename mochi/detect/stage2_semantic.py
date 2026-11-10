@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, Sequence, runtime_checkable
@@ -78,6 +79,15 @@ MAX_WINDOWS = 32
 
 #: How many attributed tokens to report per detection.
 TOP_TOKENS = 8
+
+#: Sentence boundary for splitting a flagged window. A terminator counts only
+#: when whitespace follows it, so ``evil@example.com`` stays one piece.
+SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
+
+#: Most sentences of one flagged window scored on their own. A 512-token
+#: window rarely holds more; past this the rest are not scored, and the
+#: sanitiser falls back to token attribution for them.
+MAX_SENTENCES = 64
 
 #: Where ``training/finetune_e5.py`` exports weights to. It exists in a clone
 #: that has the weights, and is the first place looked. In an installed package
@@ -234,6 +244,14 @@ class Stage2Result:
     chunk_scores: list[ChunkScore] = field(default_factory=list)
     tokens: list[tuple[str, float]] = field(default_factory=list)
     """Top attributed tokens from the winning window, highest weight first."""
+    sentences: list[tuple[str, float]] = field(default_factory=list)
+    """Each sentence of the winning window, scored on its own, in order.
+
+    What the sanitiser cuts. Token attribution says which words drove the
+    window's score, but a common word ("your") carries weight in the payload
+    and also appears in the page title, which then gets cut with it. Scored
+    alone, the title is 0.01 and the payload 0.99. Filled only when the window
+    scored at least :data:`BENIGN_THRESHOLD`, like ``tokens``."""
     truncated: bool = False
     """Whether :data:`MAX_WINDOWS` cut the scan short."""
     ran: bool = False
@@ -319,7 +337,23 @@ class Stage2Detector:
                 result.tokens = self.scorer.attribute(top.chunk.text, top_k=TOP_TOKENS)
             except NotImplementedError:
                 result.tokens = []
+            result.sentences = self._score_sentences(top.chunk.text)
         return result
+
+    def _score_sentences(self, window: str) -> list[tuple[str, float]]:
+        """Score each sentence of ``window`` alone, in one batch.
+
+        A window that is a single sentence already has its score; scoring it
+        again would only repeat the work.
+        """
+        sentences = [part.strip() for part in SENTENCE_SPLIT.split(window)
+                     if part and part.strip()][:MAX_SENTENCES]
+        if len(sentences) < 2:
+            return []
+        scores = self.scorer.score(sentences)
+        if len(scores) != len(sentences):
+            return []
+        return [(text, float(score)) for text, score in zip(sentences, scores)]
 
     def scan(self, texts: Sequence[str]) -> Stage2Result:
         """Score every variant of a segment, keeping the worst outcome.

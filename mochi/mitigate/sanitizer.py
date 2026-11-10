@@ -41,7 +41,9 @@ from typing import Any
 
 from mochi.detect.pipeline import InspectionResult
 from mochi.detect.segments import Segment, TrustLevel
-from mochi.detect.stage2_semantic import BENIGN_THRESHOLD, MALICIOUS_THRESHOLD
+from mochi.detect.stage2_semantic import (
+    BENIGN_THRESHOLD, MALICIOUS_THRESHOLD, SENTENCE_SPLIT,
+)
 from mochi.mitigate.html_redact import redact_html
 from mochi.preprocess.html_extract import looks_like_html
 from mochi.telemetry import MitigationAction
@@ -81,8 +83,13 @@ MIN_REDACTION_CHARS = 4
 #: address it was supposed to remove.
 SENTENCE_END = re.compile(r"[.!?]+(?=\s|$)|\n+")
 
-#: Splits on the same boundary, for widening a token attribution to a sentence.
-SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
+#: A sentence scoring at least this on its own is cut by itself. The bar for
+#: "suspicious" Stage II already uses for a whole request: below it, a sentence
+#: is not evidence of anything without its neighbours.
+SENTENCE_FLOOR = BENIGN_THRESHOLD
+
+#: ``SENTENCE_SPLIT`` (imported from Stage II) splits on the same boundary, so
+#: the sentences Stage II scored are the ones cut here.
 
 
 class Decision(StrEnum):
@@ -175,10 +182,19 @@ def _stage2_targets(result: InspectionResult, *,
     :data:`SESSION_ESCALATION_FLOOR` once cumulative session risk has crossed -
     accumulated evidence across turns lowers the bar for the current one.
 
-    Prefers whole sentences containing an attributed token over the raw window:
-    a 2,048-character window usually holds legitimate content too, and removing
-    all of it destroys the answer the user asked for. Falls back to the window
-    when no sentence can be isolated.
+    Prefers whole sentences over the raw window: a 2,048-character window
+    usually holds legitimate content too, and removing all of it destroys the
+    answer the user asked for. In order:
+
+    1. sentences that score at least :data:`SENTENCE_FLOOR` on their own;
+    2. failing that, sentences containing an attributed token - a payload
+       whose meaning spans sentences, none damning alone;
+    3. failing that, the window.
+
+    The first rule exists because the second over-cuts. Attribution names
+    words, and a word that weighs in the payload ("your") also appears in a
+    page's title and heading, which were cut with it. Scored alone the title
+    is 0.01 and the payload 0.99.
     """
     targets = []
     for segment, stage2 in result.stage2:
@@ -189,6 +205,11 @@ def _stage2_targets(result: InspectionResult, *,
             continue
 
         window = top.chunk.text
+        alone = [text for text, score in stage2.sentences
+                 if score >= SENTENCE_FLOOR and len(text) >= MIN_REDACTION_CHARS]
+        if alone:
+            targets.extend((segment, text) for text in alone)
+            continue
         tokens = [token for token, _ in stage2.tokens if len(token) >= MIN_REDACTION_CHARS]
         sentences = [
             sentence for sentence in SENTENCE_SPLIT.split(window)

@@ -493,11 +493,12 @@ def sheet_summary(wb, sims, detects, benign, taglish, extra):
         "the hidden and comment variants is weak evidence that redaction "
         "holds: even placed directly under the page title, those payloads "
         "almost never worked undefended (0 and 1 of 61), so few redacted "
-        "pages could have leaked. The visible variant, 0 of 27, is the real "
-        "test. These web runs use page-aware redaction (2026-11-11): before "
-        "it, MOCHI searched the raw HTML for text it had read out of the "
-        "page, often could not find it, and refused 68 of the 134 pages it "
-        "acted on instead of cleaning them; now 15 of 134.",
+        "pages could have leaked. The visible variant, 0 of 33, is the real "
+        "test. These web runs use page-aware redaction and sentence-scored "
+        "targets (2026-11-11): before them, MOCHI searched the raw HTML for "
+        "text it had read out of the page, often could not find it, and "
+        "refused 68 of the 134 pages it acted on instead of cleaning them; "
+        "now 9 of 134.",
         "Those re-runs carry the scaling pass, which reads each image again "
         "at a vision encoder's input resolution. It changes neither arm — "
         "87.5% and 75.0%, identical to before it existed — and that is the "
