@@ -91,6 +91,34 @@ mochi-gateway                                        # listens on http://127.0.0
 client = OpenAI(api_key="unused", base_url="http://127.0.0.1:8000/v1")
 ```
 
+**Other SDKs.** Both surfaces work with the Anthropic and Google Gen AI SDKs
+and with OpenAI's Responses API, not only chat completions:
+
+| SDK | `guard()` wraps | Proxy: change only |
+|---|---|---|
+| OpenAI | `chat.completions.create`, `responses.create` | `OpenAI(base_url="http://127.0.0.1:8000/v1")` |
+| Anthropic | `messages.create` | `Anthropic(base_url="http://127.0.0.1:8000")` |
+| Google Gen AI | `models.generate_content` (and `aio`) | `genai.Client(http_options={"base_url": "http://127.0.0.1:8000"})` |
+
+```python
+from anthropic import Anthropic
+client = guard(Anthropic(), system_prompt=SYSTEM_PROMPT)
+
+from google import genai
+client = guard(genai.Client(), system_prompt=SYSTEM_PROMPT)
+```
+
+Every request is read into the same chat messages before inspection, so the
+verdict does not depend on the SDK: a tool result is untrusted and redacted
+whether it arrived as an OpenAI `tool` message, an Anthropic `tool_result`
+block or a Gemini `functionResponse`. Redactions are written back in the
+SDK's own shape. The provider behind the proxy is separate from the SDK in
+front of it (`TARGET_LLM_PROVIDER=openai|anthropic|gemini`): an Anthropic SDK
+application can run against a local Ollama model, and a request in the
+provider's own format is forwarded as the client built it. The streaming
+methods of the other SDKs are refused rather than left unguarded. See
+[mochi/formats/](mochi/formats/__init__.py).
+
 ### Declare your system prompt
 
 Do this on either surface: `system_prompt=` for the wrapper,
@@ -274,7 +302,10 @@ request is forwarded upstream.
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/health` | Liveness + active provider/model |
-| `POST` | `/v1/chat/completions` | OpenAI-compatible inspection + forwarding |
+| `POST` | `/v1/chat/completions` | OpenAI chat completions: inspection + forwarding |
+| `POST` | `/v1/responses` | OpenAI Responses API |
+| `POST` | `/v1/messages` | Anthropic Messages API |
+| `POST` | `/v1beta/models/{model}:generateContent` | Gemini |
 | `GET` | `/docs` | Auto-generated OpenAPI docs |
 
 ## Telemetry
@@ -324,10 +355,18 @@ walkthrough.
 - **Streaming (`stream: true`) is refused by default** (501 from the proxy,
   `MochiBlocked` from the wrapper). Outbound interception needs the complete
   response body to scan for leaked instructions and exfiltration URLs.
-  `MOCHI_ALLOW_BUFFERED_STREAMING` accepts it by buffering.
-- **OpenAI is the only provider.** Anthropic and Gemini adapters arrive in
-  Phase 12. Pointing `OPENAI_BASE_URL` at any OpenAI-compatible server
-  (vLLM, Ollama, LM Studio, OpenRouter) works today.
+  `MOCHI_ALLOW_BUFFERED_STREAMING` accepts it by buffering - for chat
+  completions only; the Anthropic, Gemini and Responses APIs refuse streaming.
+- **The evaluation was run through chat completions.** The other SDKs reach
+  the same detection code and are covered by parity tests
+  (`tests/test_formats.py`) and an end-to-end check with the real SDKs, not
+  by a separate attack run.
+- **Stored conversations are not inspected.** A Responses API request with
+  `previous_response_id` carries only the new turn; the earlier ones live at
+  OpenAI. Such a request can only be forwarded to OpenAI.
+- **Cross-provider translation covers text, images, PDFs and function
+  tools.** Built-in provider tools (web search, code execution) and thinking
+  blocks are forwarded only to their own provider.
 
 ## License
 

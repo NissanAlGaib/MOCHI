@@ -110,6 +110,32 @@ message roles.
 Stage II loads lazily on first use, so importing `mochi.client` costs about a
 second and does not pull in torch.
 
+### Other SDKs
+
+`guard()` recognises the client it is given by what it exposes:
+
+```python
+from anthropic import Anthropic
+client = guard(Anthropic(), system_prompt=SYSTEM)       # messages.create
+
+from google import genai
+client = guard(genai.Client(), system_prompt=SYSTEM)    # models.generate_content, aio too
+
+client = guard(OpenAI(), system_prompt=SYSTEM)          # chat.completions and responses
+```
+
+The trust rules carry over by meaning, not by name. An Anthropic
+`tool_result` block arrives inside a *user* message, but it is tool output, so
+it is inspected as untrusted and redacted, exactly like an OpenAI `tool`
+message. The same goes for a Gemini `functionResponse` and a Responses API
+`function_call_output`. Redactions are written back in the SDK's own shape,
+into a copy: the conversation history your code holds is not rewritten.
+
+`messages.stream`, `responses.stream` and `generate_content_stream` refuse
+when called, and so does `stream=True`. Outbound inspection needs the whole
+response, and an unguarded streaming method next to a guarded one would be
+a way around the guard.
+
 ---
 
 ## Surface 2 — the proxy (a server)
@@ -125,6 +151,34 @@ is what the evaluation measures.
 
 The API key lives in MOCHI's environment, not the application's — which is a
 deployment advantage on its own, since the application never holds it.
+
+### Other SDKs, and other providers
+
+The proxy serves each SDK's own API, so those applications also change only
+their base URL:
+
+```python
+Anthropic(base_url="http://mochi:8000", api_key="unused")                 # /v1/messages
+OpenAI(base_url="http://mochi:8000/v1", api_key="unused").responses       # /v1/responses
+genai.Client(api_key="unused",
+             http_options={"base_url": "http://mochi:8000"})               # :generateContent
+```
+
+The SDK in front and the provider behind are independent.
+`TARGET_LLM_PROVIDER` is `openai` (and any OpenAI-compatible server),
+`anthropic` or `gemini`:
+
+- **Same family** (an Anthropic SDK in front of Anthropic): the request is
+  forwarded as the client built it, with MOCHI's redactions written in, and
+  keeps the model it names.
+- **Different family** (an Anthropic SDK in front of Ollama): the request is
+  translated through the chat shape and the reply translated back, so the
+  application still receives an Anthropic response. The model it named
+  belongs to another provider, so `TARGET_LLM_MODEL` is used instead.
+
+Errors, including MOCHI's own 403, come back in each SDK's error format, so
+the SDK raises its usual exception (`anthropic.PermissionDeniedError`,
+`google.genai.errors.ClientError`).
 
 ---
 

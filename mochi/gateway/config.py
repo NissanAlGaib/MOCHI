@@ -98,6 +98,18 @@ class Settings:
     outbound_remove_click_urls: bool
     allow_buffered_streaming: bool
 
+    # Providers other than OpenAI, selected with TARGET_LLM_PROVIDER. Each
+    # needs only its key; the base URLs are there for proxies and tests.
+    anthropic_api_key: str = ""
+    anthropic_base_url: str = "https://api.anthropic.com"
+    anthropic_version: str = "2023-06-01"
+    gemini_api_key: str = ""
+    gemini_base_url: str = "https://generativelanguage.googleapis.com"
+
+    def api_key_for(self, provider: str) -> str:
+        return {"openai": self.openai_api_key, "anthropic": self.anthropic_api_key,
+                "gemini": self.gemini_api_key}.get(provider, "")
+
 
 def _get_int(name: str, default: int) -> int:
     raw = os.getenv(name)
@@ -196,4 +208,15 @@ def get_settings() -> Settings:
         # incremental streaming and callers should opt in knowingly - see
         # docs/BUILD_PLAN.md Phase 11.
         allow_buffered_streaming=_get_bool("MOCHI_ALLOW_BUFFERED_STREAMING", False),
+        anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", "").strip(),
+        anthropic_base_url=os.getenv(
+            "ANTHROPIC_BASE_URL", "https://api.anthropic.com").strip().rstrip("/"),
+        anthropic_version=os.getenv("ANTHROPIC_VERSION", "2023-06-01").strip(),
+        # GOOGLE_API_KEY is what the google-genai SDK itself reads, so a
+        # deployment that already has it set needs nothing new.
+        gemini_api_key=(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+                        or "").strip(),
+        gemini_base_url=os.getenv(
+            "GEMINI_BASE_URL",
+            "https://generativelanguage.googleapis.com").strip().rstrip("/"),
     )

@@ -648,6 +648,29 @@ The 501 stays the **default**, but the reason changed. It's no longer "outbound 
 
 **Definition of done:** the same MOCHI instance, same detection code, serves requests to at least two different backend providers by changing only `.env`.
 
+**Done 2026-11-12, and widened on the adviser's request** that MOCHI work
+with SDKs other than OpenAI's, not only with other backends:
+
+- `mochi/formats/`: the four wire formats (OpenAI chat, OpenAI Responses,
+  Anthropic Messages, Gemini). Each translates its request into the chat
+  messages inspection reads, with a binding from every block back to its
+  place, so enforcement's edits are written back in the SDK's own shape.
+- `guard()` wraps OpenAI (chat and Responses), Anthropic and Google Gen AI
+  clients, sync and async; their streaming methods refuse.
+- The gateway serves `/v1/messages`, `/v1/responses` and
+  `/v1beta/models/{m}:generateContent` beside `/v1/chat/completions`.
+- `anthropic_adapter.py` and `gemini_adapter.py` translate chat to their
+  provider and back with the same format code. When the client's format
+  matches the provider's, the request is forwarded natively.
+- Evidence: `tests/test_formats.py` (73 tests; one attack reaches the same
+  verdict through every format), and an end-to-end run of the real
+  `anthropic`, `openai` and `google-genai` SDKs through the gateway (target:
+  Ollama) and through `guard()`. 17/17 passed. Tool-result injections were
+  sanitized at `api_response` for both Anthropic and Gemini.
+- Not measured: the attack corpus was not re-run per SDK. Parity holds by
+  construction and by test; Chapter IV's numbers are chat-completions
+  numbers.
+
 ---
 
 ## Phase 13 — Full Evaluation (maps to thesis Phase 2–4)

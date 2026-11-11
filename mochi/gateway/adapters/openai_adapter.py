@@ -5,6 +5,10 @@ thin authenticated forwarder. Pointing ``OPENAI_BASE_URL`` at any
 OpenAI-compatible server (vLLM, Ollama, LM Studio, OpenRouter, Azure OpenAI)
 makes those work too, which is useful for running evaluations without paid
 API calls.
+
+It also forwards Responses API requests as they are. Whether the server
+behind ``OPENAI_BASE_URL`` implements ``/responses`` is up to that server;
+one that does not answers 404, and the error is passed back unchanged.
 """
 
 from __future__ import annotations
@@ -13,12 +17,13 @@ from typing import Any
 
 import httpx
 
-from mochi.gateway.adapters.base import LLMAdapter, UpstreamError
+from mochi.gateway.adapters.base import LLMAdapter, post_json
 from mochi.gateway.config import get_settings
 
 
 class OpenAIAdapter(LLMAdapter):
     name = "openai"
+    native_formats = frozenset({"openai_chat", "openai_responses"})
 
     def __init__(self) -> None:
         settings = get_settings()
@@ -28,42 +33,21 @@ class OpenAIAdapter(LLMAdapter):
             timeout=settings.request_timeout,
         )
 
+    def _post(self, path: str, payload: dict[str, Any]):
+        return post_json(self._client, path, payload,
+                         headers={"Authorization": f"Bearer {self._api_key}"},
+                         key_name="OPENAI_API_KEY", api_key=self._api_key)
+
     async def chat_completion(self, payload: dict[str, Any]) -> dict[str, Any]:
-        if not self._api_key:
-            raise UpstreamError(
-                "OPENAI_API_KEY is not set. Copy .env.example to .env and add a key.",
-                status_code=503,
-            )
+        return await self._post("/chat/completions", payload)
 
-        try:
-            response = await self._client.post(
-                "/chat/completions",
-                json=payload,
-                headers={"Authorization": f"Bearer {self._api_key}"},
-            )
-        except httpx.TimeoutException as exc:
-            raise UpstreamError(
-                f"Target LLM timed out: {exc}", status_code=504
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise UpstreamError(
-                f"Could not reach target LLM: {exc}", status_code=502
-            ) from exc
-
-        if response.status_code >= 400:
-            # Pass the provider's own error through rather than masking it -
-            # a 401 from OpenAI should not look like a MOCHI bug.
-            try:
-                detail = response.json()
-            except ValueError:
-                detail = {"error": {"message": response.text}}
-            raise UpstreamError(
-                f"Target LLM returned {response.status_code}",
-                status_code=response.status_code,
-                payload=detail,
-            )
-
-        return response.json()
+    async def native(self, fmt: str, payload: dict[str, Any], *,
+                     model: str) -> dict[str, Any]:
+        if fmt == "openai_chat":
+            return await self.chat_completion(payload)
+        if fmt == "openai_responses":
+            return await self._post("/responses", payload)
+        return await super().native(fmt, payload, model=model)
 
     async def aclose(self) -> None:
         await self._client.aclose()

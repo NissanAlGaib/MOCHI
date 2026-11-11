@@ -221,6 +221,26 @@ def _guard_kwargs(kwargs: dict[str, Any], config: _Config,
             kwargs["messages"] = messages
 
     request = _build_request(kwargs, config)
+    call = _enforce(request, config, owner)
+
+    # Hand back the possibly-rewritten messages. model_dump rather than the
+    # original list, because apply() and convert_attachments() both edited the
+    # validated object rather than the caller's dicts.
+    kwargs["messages"] = [
+        message.model_dump(exclude_none=True) if hasattr(message, "model_dump")
+        else message
+        for message in request.messages
+    ]
+    return call
+
+
+def _enforce(request: ChatCompletionRequest, config: _Config,
+             owner: Any = None) -> GuardedCall:
+    """Inspect, decide and apply - the part every SDK's call shares.
+
+    Mutates ``request`` on SANITIZE and when converting attachments; raises
+    :class:`MochiBlocked` on BLOCK.
+    """
     record = TelemetryRecord()
     result = inspect_request(
         request, record,
@@ -272,16 +292,100 @@ def _guard_kwargs(kwargs: dict[str, Any], config: _Config,
         from mochi.preprocess.extract import convert_attachments
 
         call.attachments_converted = convert_attachments(request)
-
-    # Hand back the possibly-rewritten messages. model_dump rather than the
-    # original list, because apply() and convert_attachments() both edited the
-    # validated object rather than the caller's dicts.
-    kwargs["messages"] = [
-        message.model_dump(exclude_none=True) if hasattr(message, "model_dump")
-        else message
-        for message in request.messages
-    ]
     return call
+
+
+# --- other SDKs -------------------------------------------------------------
+#
+# Each SDK's call is translated to chat messages for inspection and the edits
+# written back in its own shape - see mochi.formats. Only the arguments that
+# carry content are copied before translation, and copied deeply: redaction
+# writes into the copy, so the caller's own conversation history is left as
+# they built it, as the chat path leaves it. Everything else (timeouts,
+# headers, the SDKs' "not given" sentinels, whose identity they check) is
+# passed through untouched.
+
+#: format -> the call arguments that carry content.
+CONTENT_ARGUMENTS = {
+    "anthropic": ("system", "messages"),
+    "openai_responses": ("instructions", "input"),
+    "gemini": ("config", "contents"),
+}
+
+
+def _native_body(kwargs: dict[str, Any], fmt: str) -> dict[str, Any]:
+    import copy
+
+    body: dict[str, Any] = {"model": kwargs.get("model")}
+    for key in CONTENT_ARGUMENTS[fmt]:
+        if key in kwargs:
+            value = kwargs[key]
+            body[key] = copy.deepcopy(value) if isinstance(value, (str, list, dict)) \
+                or hasattr(value, "model_dump") else value
+    if fmt == "gemini":
+        from mochi.formats import normalize_contents
+
+        body["contents"] = normalize_contents(body.get("contents"))
+        body.setdefault("config", None)      # marks the SDK's shape; see ensure_system
+    return body
+
+
+def _guard_native(kwargs: dict[str, Any], fmt_name: str, config: _Config,
+                  owner: Any = None) -> GuardedCall:
+    """:func:`_guard_kwargs` for an SDK that does not speak chat completions."""
+    from mochi.formats import get_format
+
+    fmt = get_format(fmt_name)
+    body = _native_body(kwargs, fmt_name)
+    if config.system_prompt:
+        fmt.ensure_system(body, config.system_prompt)
+    view = fmt.to_chat(body)
+    request = _build_request({"model": fmt.model(body), "messages": view.messages},
+                             config)
+    call = _enforce(request, config, owner)
+    view.write_back(request.messages)
+    for key in CONTENT_ARGUMENTS[fmt_name]:
+        if key in body and (key in kwargs or body[key] is not None):
+            kwargs[key] = body[key]
+    return call
+
+
+def _guard_native_response(response: Any, call: GuardedCall, fmt_name: str,
+                           config: _Config) -> Any:
+    """Outbound inspection for any format, on the SDK's own response object.
+
+    Every text in the response is scanned as one chat choice, and what was
+    cleaned is written back onto the object, so the caller keeps the type
+    their SDK returns. An object that refuses the write fails closed: the
+    leak would otherwise reach the caller with the log saying it was removed.
+    """
+    if not config.enable_outbound or call.inspection is None:
+        return response
+    from mochi.formats import get_format
+
+    slots = get_format(fmt_name).response_texts(response)
+    if not slots:
+        return response
+    pseudo = {"choices": [{"message": {"content": text}} for text, _ in slots]}
+    outbound = scan_completion(
+        pseudo,
+        protected=protected_text(call.inspection.segments),
+        remove_click_urls=config.outbound_remove_click_urls,
+    )
+    call.outbound_modified = outbound.modified
+    call.outbound_findings = list(outbound.findings)
+    if outbound.modified:
+        for (text, write), choice in zip(slots, pseudo["choices"]):
+            cleaned = choice["message"]["content"]
+            if cleaned != text:
+                try:
+                    write(cleaned)
+                except Exception as exc:  # noqa: BLE001 - immutable response type
+                    raise MochiBlocked(
+                        "The response leaked protected content and could not be "
+                        f"cleaned in place ({type(exc).__name__}), so it was "
+                        "withheld.", request_id=call.request_id) from exc
+    return response
 
 
 def _guard_response(response: Any, call: GuardedCall, config: _Config) -> Any:
@@ -326,10 +430,27 @@ def _guard_response(response: Any, call: GuardedCall, config: _Config) -> Any:
 
 
 def _wrap_create(original: Callable[..., Any], config: _Config,
-                 owner: Any) -> Callable[..., Any]:
+                 owner: Any, fmt: str = "openai_chat") -> Callable[..., Any]:
     """Return a replacement for ``create`` that inspects around it."""
 
+    if fmt == "openai_chat":
+        before, after = _guard_kwargs, _guard_response
+    else:
+        def before(kwargs, config, owner):
+            return _guard_native(kwargs, fmt, config, owner)
+
+        def after(response, call, config):
+            return _guard_native_response(response, call, fmt, config)
+
     def _check_stream(kwargs: dict[str, Any]) -> None:
+        if kwargs.get("stream") and fmt != "openai_chat":
+            # Buffering is implemented for chat completions only: handing an
+            # Anthropic or Responses caller one finished object where their
+            # code iterates events would break it in a less obvious way.
+            _refuse_stream(config, owner, (
+                "Streaming is not supported for this SDK through guard(): "
+                "outbound inspection needs the complete response. Call without "
+                "stream=True."))
         if kwargs.get("stream") and not config.allow_buffered_streaming:
             reason = (
                 "Streaming is not supported by default: outbound inspection "
@@ -337,21 +458,15 @@ def _wrap_create(original: Callable[..., Any], config: _Config,
                 "can straddle two chunks. Pass allow_buffered_streaming=True "
                 "to receive the whole response as one piece - that is not "
                 "incremental streaming.")
-            # Recorded like any other refusal, so mochi_last never describes
-            # an earlier call while this one is the one being refused.
-            refused = GuardedCall(decision="block", reason=reason)
-            owner.mochi_last = refused
-            if config.on_verdict:
-                config.on_verdict(refused)
-            raise MochiBlocked(reason)
+            _refuse_stream(config, owner, reason)
         kwargs.pop("stream", None)
 
     if _inspect.iscoroutinefunction(original):
         async def guarded_async(*args: Any, **kwargs: Any) -> Any:
             _check_stream(kwargs)
-            call = _guard_kwargs(kwargs, config, owner)
+            call = before(kwargs, config, owner)
             response = await original(*args, **kwargs)
-            response = _guard_response(response, call, config)
+            response = after(response, call, config)
             owner.mochi_last = call
             if config.on_verdict:
                 config.on_verdict(call)
@@ -361,9 +476,9 @@ def _wrap_create(original: Callable[..., Any], config: _Config,
 
     def guarded(*args: Any, **kwargs: Any) -> Any:
         _check_stream(kwargs)
-        call = _guard_kwargs(kwargs, config, owner)
+        call = before(kwargs, config, owner)
         response = original(*args, **kwargs)
-        response = _guard_response(response, call, config)
+        response = after(response, call, config)
         owner.mochi_last = call
         if config.on_verdict:
             config.on_verdict(call)
@@ -372,18 +487,77 @@ def _wrap_create(original: Callable[..., Any], config: _Config,
     return guarded
 
 
-def guard(client: Any, **settings: Any) -> Any:
-    """Wrap ``client`` so every chat completion is inspected first.
+def _refuse_stream(config: _Config, owner: Any, reason: str) -> None:
+    # Recorded like any other refusal, so mochi_last never describes an
+    # earlier call while this one is the one being refused.
+    refused = GuardedCall(decision="block", reason=reason)
+    owner.mochi_last = refused
+    if config.on_verdict:
+        config.on_verdict(refused)
+    raise MochiBlocked(reason)
 
-    Returns the same object, with ``chat.completions.create`` replaced. The
-    client is mutated rather than copied: a copy would let a reference taken
-    before the call escape inspection, which is exactly the bypass this
-    surface is already weakest against.
+
+def _wrap_refusal(name: str, config: _Config, owner: Any) -> Callable[..., Any]:
+    """A replacement for a streaming method, which would bypass inspection.
+
+    Left in place, ``messages.stream`` or ``generate_content_stream`` would be
+    an unguarded door beside the guarded one - the bypass this surface is
+    already weakest against - so it refuses, and says what to call instead.
+    """
+    reason = (f"{name}() is not available through guard(): outbound inspection "
+              "needs the complete response, which a stream does not provide. "
+              "Use the non-streaming call.")
+
+    def refused(*args: Any, **kwargs: Any) -> Any:
+        _refuse_stream(config, owner, reason)
+
+    return refused
+
+
+#: Where each SDK's call lives on its client: (path to the object holding
+#: the method, method, format, streaming siblings refused).
+SURFACES: tuple[tuple[tuple[str, ...], str, str, tuple[str, ...]], ...] = (
+    (("chat", "completions"), "create", "openai_chat", ()),
+    (("responses",), "create", "openai_responses", ("stream",)),
+    (("messages",), "create", "anthropic", ("stream",)),
+    (("models",), "generate_content", "gemini", ("generate_content_stream",)),
+    (("aio", "models"), "generate_content", "gemini", ("generate_content_stream",)),
+)
+
+
+def _resolve(client: Any, path: tuple[str, ...]) -> Any:
+    target = client
+    for name in path:
+        target = getattr(target, name, None)
+        if target is None:
+            return None
+    return target
+
+
+def guard(client: Any, **settings: Any) -> Any:
+    """Wrap ``client`` so every model call is inspected first.
+
+    Returns the same object, with its call methods replaced. The client is
+    mutated rather than copied: a copy would let a reference taken before the
+    call escape inspection, which is exactly the bypass this surface is
+    already weakest against.
+
+    Supported clients, sync and async, recognised by what they expose:
+
+    ==========================  ==============================================
+    OpenAI (and compatible)     ``chat.completions.create``, ``responses.create``
+    Anthropic                   ``messages.create``
+    Google Gen AI (Gemini)      ``models.generate_content``, and ``aio.models``
+    ==========================  ==============================================
+
+    The streaming methods beside them (``messages.stream``,
+    ``responses.stream``, ``generate_content_stream``) are replaced with ones
+    that refuse, because leaving them would leave an unguarded way out.
 
     Args:
-        client: An OpenAI-compatible client, sync or async. Anything exposing
-            ``chat.completions.create`` works - the OpenAI SDK, Azure's, or a
-            stub in a test.
+        client: An LLM SDK client, sync or async. Anything exposing one of
+            the calls above works - the OpenAI SDK, Azure's, Anthropic's,
+            Google's, or a stub in a test.
         system_prompt: Your system prompt, declared. Prepended when the
             caller's messages have none, and - the part that matters - exempt
             from enforcement when it arrives verbatim, as the proxy exempts
@@ -407,9 +581,9 @@ def guard(client: Any, **settings: Any) -> Any:
             including a blocked one. For logging without wrapping again.
 
     Raises:
-        TypeError: If the client has no ``chat.completions.create``, which
-            means it is not the kind of object this can guard - said plainly
-            rather than failing at the first call.
+        TypeError: If the client exposes none of the calls above, which means
+            it is not the kind of object this can guard - said plainly rather
+            than failing at the first call.
     """
     unknown = set(settings) - {f for f in _Config.__dataclass_fields__}
     if unknown:
@@ -418,35 +592,62 @@ def guard(client: Any, **settings: Any) -> Any:
             f"Valid: {', '.join(sorted(_Config.__dataclass_fields__))}")
     config = _Config(**settings)
 
-    try:
-        completions = client.chat.completions
-        original = completions.create
-    except AttributeError as exc:
+    found = []
+    for path, method, fmt, streams in SURFACES:
+        holder = _resolve(client, path)
+        original = getattr(holder, method, None) if holder is not None else None
+        if callable(original):
+            found.append((holder, method, original, fmt, streams))
+    if not found:
         raise TypeError(
-            f"{type(client).__name__} has no chat.completions.create, so it "
-            f"cannot be guarded. guard() expects an OpenAI-compatible client."
-        ) from exc
+            f"{type(client).__name__} has no chat.completions.create, "
+            f"responses.create, messages.create or models.generate_content, so "
+            f"it cannot be guarded. guard() expects an OpenAI, Anthropic or "
+            f"Google Gen AI client.")
 
-    if getattr(original, "__mochi_guarded__", False):
+    if all(getattr(original, "__mochi_guarded__", False)
+           for _, _, original, _, _ in found):
         return client
 
-    guarded = _wrap_create(original, config, client)
-    guarded.__mochi_guarded__ = True          # type: ignore[attr-defined]
-    guarded.__wrapped__ = original            # type: ignore[attr-defined]
-    completions.create = guarded              # type: ignore[assignment]
+    for holder, method, original, fmt, streams in found:
+        if getattr(original, "__mochi_guarded__", False):
+            continue
+        _replace(holder, method, _wrap_create(original, config, client, fmt), original)
+        for stream in streams:
+            sibling = getattr(holder, stream, None)
+            if callable(sibling) and not getattr(sibling, "__mochi_guarded__", False):
+                _replace(holder, stream,
+                         _wrap_refusal(f"{'.'.join(_path_of(holder, client))}{stream}",
+                                       config, client), sibling)
     client.mochi_config = config
     client.mochi_last = None
     return client
 
 
+def _replace(holder: Any, name: str, replacement: Callable[..., Any],
+             original: Callable[..., Any]) -> None:
+    replacement.__mochi_guarded__ = True      # type: ignore[attr-defined]
+    replacement.__wrapped__ = original        # type: ignore[attr-defined]
+    setattr(holder, name, replacement)
+
+
+def _path_of(holder: Any, client: Any) -> list[str]:
+    """``["messages", ""]``-style prefix naming a refused method in its error."""
+    for path, *_ in SURFACES:
+        if _resolve(client, path) is holder:
+            return [*path, ""]
+    return []
+
+
 def unguard(client: Any) -> Any:
     """Undo :func:`guard`. Mainly for tests, which should not leak a wrapped
     client into the next one."""
-    try:
-        completions = client.chat.completions
-        original = getattr(completions.create, "__wrapped__", None)
-    except AttributeError:
-        return client
-    if original is not None:
-        completions.create = original
+    for path, method, _, streams in SURFACES:
+        holder = _resolve(client, path)
+        if holder is None:
+            continue
+        for name in (method, *streams):
+            original = getattr(getattr(holder, name, None), "__wrapped__", None)
+            if original is not None:
+                setattr(holder, name, original)
     return client

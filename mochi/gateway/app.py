@@ -53,9 +53,10 @@ from mochi.telemetry import (
 
 logger = logging.getLogger("mochi.gateway")
 
-#: Only requests under this prefix are inspected and logged; /health and /docs
-#: are infrastructure endpoints and would otherwise pollute the evaluation data.
-INSPECTED_PREFIX = "/v1/"
+#: Only requests under these prefixes are inspected and logged; /health and
+#: /docs are infrastructure endpoints and would otherwise pollute the
+#: evaluation data. ``/v1beta/`` is Gemini's API version.
+INSPECTED_PREFIX = ("/v1/", "/v1beta/")
 
 
 @asynccontextmanager
@@ -282,7 +283,9 @@ async def health() -> dict[str, Any]:
         "version": __version__,
         "provider": settings.target_llm_provider,
         "default_model": settings.target_llm_model,
-        "api_key_configured": bool(settings.openai_api_key),
+        "api_key_configured": bool(settings.api_key_for(settings.target_llm_provider)),
+        "apis": ["/v1/chat/completions", "/v1/responses", "/v1/messages",
+                 "/v1beta/models/{model}:generateContent"],
     }
 
 
@@ -325,14 +328,60 @@ async def chat_completions(request: Request) -> Any:
             "single stream event. Incremental streaming is not implemented.",
         )
 
+    inspection, verdict = await _inspect_and_enforce(request, parsed, record, settings)
+
+    if verdict.blocks:
+        logger.info("BLOCK %s - %s", record.request_id, verdict.reason)
+        return _error(BLOCK_STATUS, verdict.reason,
+                      extra={"request_id": record.request_id})
+
+    _convert(parsed, record, settings)
+
+    # ``stream`` is dropped before dispatch even in buffered mode: MOCHI needs the
+    # complete body from the provider, then re-frames it as a stream itself.
+    upstream_body = parsed.upstream_payload(default_model=settings.target_llm_model)
+    wants_stream = bool(upstream_body.pop("stream", False))
+    adapter = request.app.state.adapter
+    if _crosses_provider("openai_chat", adapter):
+        upstream_body["model"] = settings.target_llm_model
+        record.target_model = settings.target_llm_model
+
+    try:
+        with stage_timer(record.latency, "upstream"):
+            completion = await adapter.chat_completion(upstream_body)
+    except UpstreamError as exc:
+        logger.warning("Upstream error: %s", exc)
+        record.mitigation_action_applied = MitigationAction.NOT_APPLICABLE
+        return _error(exc.status_code, str(exc), payload=exc.payload)
+
+    # --- outbound interception (Phase 11) ---
+    if settings.enable_outbound:
+        with stage_timer(record.latency, "outbound"):
+            outbound = scan_completion(
+                completion,
+                protected=protected_text(inspection.segments),
+                remove_click_urls=settings.outbound_remove_click_urls,
+            )
+        _record_outbound(record, outbound)
+
+    if wants_stream:
+        return _as_stream(completion)
+    return completion
+
+
+async def _inspect_and_enforce(request: Request, parsed: ChatCompletionRequest,
+                               record: TelemetryRecord, settings: Any):
+    """Inspection and enforcement, shared by every route.
+
+    ``enforce`` mutates ``parsed`` in place on SANITIZE, so it runs before
+    anything serializes the request for upstream.
+    """
     with stage_timer(record.latency, "inspection"):
         inspection = await inspect_request(
             parsed, record, app_state=request.app.state
         )
 
     # --- enforcement (Phase 10) ---
-    # ``enforce`` mutates ``parsed`` in place on SANITIZE, so it must run before
-    # ``upstream_payload`` serializes it.
     verdict = enforce(
         parsed,
         inspection,
@@ -347,17 +396,18 @@ async def chat_completions(request: Request) -> Any:
     record.spans_redacted = verdict.spans_removed
 
     attribute_verdict(record, inspection, verdict)
+    return inspection, verdict
 
-    if verdict.blocks:
-        logger.info("BLOCK %s - %s", record.request_id, verdict.reason)
-        return _error(BLOCK_STATUS, verdict.reason,
-                      extra={"request_id": record.request_id})
 
-    # Attachments become text before dispatch, when configured to. After
-    # enforcement, so a redacted request stays redacted, and after the block
-    # check, so nothing is transcribed for a request that is not being sent.
-    # Extraction already ran during inspection and its result is cached, so
-    # this is a lookup rather than a second OCR pass.
+def _convert(parsed: ChatCompletionRequest, record: TelemetryRecord,
+             settings: Any) -> None:
+    """Attachments become text before dispatch, when configured to.
+
+    After enforcement, so a redacted request stays redacted, and after the
+    block check, so nothing is transcribed for a request that is not being
+    sent. Extraction already ran during inspection and its result is cached,
+    so this is a lookup rather than a second OCR pass.
+    """
     if settings.forward_mode == "convert" and settings.read_images:
         from mochi.preprocess.extract import convert_attachments
 
@@ -367,39 +417,182 @@ async def chat_completions(request: Request) -> Any:
             logger.info("Converted %d attachment(s) to text for %s",
                         converted, record.request_id)
 
-    # ``stream`` is dropped before dispatch even in buffered mode: MOCHI needs the
-    # complete body from the provider, then re-frames it as a stream itself.
-    upstream_body = parsed.upstream_payload(default_model=settings.target_llm_model)
-    wants_stream = bool(upstream_body.pop("stream", False))
+
+def _record_outbound(record: TelemetryRecord, outbound: Any) -> None:
+    record.outbound_action = outbound.action
+    record.outbound_exfiltration_risk = outbound.exfiltration_risk
+    record.outbound_urls_removed = outbound.urls_removed
+    record.outbound_leaked_spans = outbound.leaked_spans
+    record.outbound_findings = list(outbound.findings)
+    if outbound.modified:
+        logger.info("OUTBOUND redact %s - %s", record.request_id,
+                    "; ".join(outbound.findings))
+
+
+#: The provider whose SDK speaks each format.
+FORMAT_PROVIDER = {"openai_chat": "openai", "openai_responses": "openai",
+                   "anthropic": "anthropic", "gemini": "gemini"}
+
+
+def _crosses_provider(fmt: str, adapter: Any) -> bool:
+    """True when the client's SDK is for a different provider than the target.
+
+    The model a client names is then a model of *its* provider - an Anthropic
+    SDK asking for ``claude-...`` while the target is Ollama - and cannot be
+    sent on, so the request goes to ``TARGET_LLM_MODEL`` instead. A test
+    double, named after no provider, is left alone.
+    """
+    name = getattr(adapter, "name", "")
+    return name in FORMAT_PROVIDER.values() and FORMAT_PROVIDER.get(fmt) != name
+
+
+# --- other SDKs' APIs -------------------------------------------------------
+#
+# Each route below serves one SDK's own API, so an application built on that
+# SDK protects itself by changing its base URL, as an OpenAI one does. The
+# request is read into chat messages, inspected and enforced by exactly the
+# code the chat route uses, and the edits written back in its own format
+# (mochi.formats). Then either the target speaks that format and the request
+# goes upstream as the client built it, or it is translated through the chat
+# shape - so an Anthropic SDK application can run against a local Ollama.
+
+
+async def _serve(request: Request, fmt_name: str, *,
+                 path_model: str | None = None) -> Any:
+    from mochi.formats import FormatError, get_format
+
+    settings = get_settings()
+    fmt = get_format(fmt_name)
+    record: TelemetryRecord = request.state.telemetry
+    record.target_provider = settings.target_llm_provider
+
+    def fail(status: int, message: str, extra: dict | None = None) -> JSONResponse:
+        return JSONResponse(status_code=status,
+                            content=fmt.error(status, message, extra=extra))
+
+    try:
+        body = await request.json()
+    except ValueError:
+        return fail(400, "Request body must be valid JSON.")
+    if not isinstance(body, dict):
+        return fail(400, "Request body must be a JSON object.")
+
+    # MOCHI's own fields, accepted here as on the chat route and removed
+    # before forwarding, which every provider would reject them for.
+    session_id, context = body.pop("session_id", None), body.pop("context", None)
+
+    if fmt.is_streaming(body):
+        return fail(501, "Streaming is not supported for this API through MOCHI: "
+                         "outbound inspection needs the complete response. Send the "
+                         "request without streaming.")
+    try:
+        view = fmt.to_chat(body)
+        parsed = ChatCompletionRequest.model_validate({
+            "model": path_model or fmt.model(body), "messages": view.messages,
+            "session_id": session_id, "context": context})
+    except Exception as exc:  # noqa: BLE001 - FormatError, ValidationError, bad shapes
+        return fail(422 if not isinstance(exc, FormatError) else 400,
+                    f"Invalid {fmt_name} request: {exc}")
+
+    adapter = request.app.state.adapter
+    native = fmt_name in adapter.native_formats
+    record.session_id = parsed.session_id
+    record.target_model = (parsed.model or settings.target_llm_model) if native \
+        else settings.target_llm_model
+    inspectable = parsed.inspectable_text(read_images=settings.read_images)
+    record.payload_characteristics = PayloadCharacteristics.from_text(
+        inspectable,
+        include_content=settings.log_payloads,
+        language=detect_language(inspectable).language,
+    )
+
+    inspection, verdict = await _inspect_and_enforce(request, parsed, record, settings)
+    if verdict.blocks:
+        logger.info("BLOCK %s - %s", record.request_id, verdict.reason)
+        return fail(BLOCK_STATUS, verdict.reason, extra={"request_id": record.request_id})
+
+    _convert(parsed, record, settings)
+    view.write_back(parsed.messages)
 
     try:
         with stage_timer(record.latency, "upstream"):
-            completion = await request.app.state.adapter.chat_completion(upstream_body)
+            if native:
+                response = await adapter.native(
+                    fmt_name, body, model=path_model or fmt.model(body)
+                    or settings.target_llm_model)
+            else:
+                if get_format("openai_responses") is fmt and body.get("previous_response_id"):
+                    return fail(400, "previous_response_id refers to a conversation "
+                                     "stored at OpenAI and cannot be forwarded to "
+                                     f"{settings.target_llm_provider}. Send the full input.")
+                forward = fmt.to_chat(body)          # the cleaned request
+                payload = {**fmt.chat_params(body), "model": settings.target_llm_model,
+                           "messages": forward.forwardable()}
+                completion = await adapter.chat_completion(payload)
     except UpstreamError as exc:
         logger.warning("Upstream error: %s", exc)
         record.mitigation_action_applied = MitigationAction.NOT_APPLICABLE
-        return _error(exc.status_code, str(exc), payload=exc.payload)
+        if native and exc.payload is not None:
+            return JSONResponse(status_code=exc.status_code, content=exc.payload)
+        return fail(exc.status_code, str(exc))
+    except FormatError as exc:
+        record.mitigation_action_applied = MitigationAction.NOT_APPLICABLE
+        return fail(400, str(exc))
 
-    # --- outbound interception (Phase 11) ---
+    protected = protected_text(inspection.segments)
+    if not native:
+        if settings.enable_outbound:
+            with stage_timer(record.latency, "outbound"):
+                _record_outbound(record, scan_completion(
+                    completion, protected=protected,
+                    remove_click_urls=settings.outbound_remove_click_urls))
+        return fmt.response_from_chat(completion, model=None)
+
     if settings.enable_outbound:
+        slots = fmt.response_texts(response)
+        pseudo = {"choices": [{"message": {"content": text}} for text, _ in slots]}
         with stage_timer(record.latency, "outbound"):
-            outbound = scan_completion(
-                completion,
-                protected=protected_text(inspection.segments),
-                remove_click_urls=settings.outbound_remove_click_urls,
-            )
-        record.outbound_action = outbound.action
-        record.outbound_exfiltration_risk = outbound.exfiltration_risk
-        record.outbound_urls_removed = outbound.urls_removed
-        record.outbound_leaked_spans = outbound.leaked_spans
-        record.outbound_findings = list(outbound.findings)
-        if outbound.modified:
-            logger.info("OUTBOUND redact %s - %s", record.request_id,
-                        "; ".join(outbound.findings))
+            outbound = scan_completion(pseudo, protected=protected,
+                                       remove_click_urls=settings.outbound_remove_click_urls)
+        for (text, write), choice in zip(slots, pseudo["choices"]):
+            if choice["message"]["content"] != text:
+                write(choice["message"]["content"])
+        _record_outbound(record, outbound)
+    return response
 
-    if wants_stream:
-        return _as_stream(completion)
-    return completion
+
+@app.post("/v1/messages")
+async def anthropic_messages(request: Request) -> Any:
+    """Anthropic's Messages API. ``Anthropic(base_url="http://mochi:8000")``."""
+    return await _serve(request, "anthropic")
+
+
+@app.post("/v1/responses")
+async def openai_responses(request: Request) -> Any:
+    """OpenAI's Responses API. ``OpenAI(base_url="http://mochi:8000/v1")``."""
+    return await _serve(request, "openai_responses")
+
+
+@app.post("/v1beta/models/{target}")
+@app.post("/v1/models/{target}")
+async def gemini_generate(request: Request, target: str) -> Any:
+    """Gemini's ``models/{model}:generateContent``.
+
+    ``genai.Client(http_options={"base_url": "http://mochi:8000"})``. The
+    method is part of the last path segment, after a colon, so it is split
+    here rather than by the router.
+    """
+    from mochi.formats import get_format
+
+    model, _, method = target.rpartition(":")
+    if method == "generateContent" and model:
+        return await _serve(request, "gemini", path_model=model)
+    status = 501 if method == "streamGenerateContent" else 404
+    message = ("Streaming is not supported through MOCHI: outbound inspection needs "
+               "the complete response. Use generateContent."
+               if status == 501 else f"Unknown Gemini method {method!r}.")
+    return JSONResponse(status_code=status,
+                        content=get_format("gemini").error(status, message))
 
 
 def _as_stream(completion: dict[str, Any]) -> StreamingResponse:
