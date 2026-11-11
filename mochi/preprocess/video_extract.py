@@ -301,7 +301,7 @@ def extract_video(data: bytes) -> VideoExtraction:
             # relies on predicting how the delivered file will be resized,
             # and a frame has already been sampled and decoded out of a
             # stream. Measured 6.9 s with them against 1.7 s without.
-            read = extract_image(raw, scaling_passes=())
+            read = extract_image(raw, scaling_passes=(), bitplanes=False)
             out.frames_read += 1
             # A caption held on screen appears in every frame it spans.
             # Deduplicating keeps one copy, so a detector is not handed the

@@ -140,6 +140,11 @@ class ImageExtraction:
     Nothing in the chain surfaces them, and scanning arbitrary trailing data
     for text would invent findings rather than report them."""
 
+    bitplane_text: list[str] = field(default_factory=list)
+    """Messages decoded from the image's lowest bit planes - see
+    :mod:`mochi.preprocess.bitplane`. Read from the pixels directly, not by
+    OCR, so they are found even in an image with no visible text."""
+
     flags: list[str] = field(default_factory=list)
     ocr_ran: bool = False
     """False when OCR was unavailable or the input was not a usable image -
@@ -149,7 +154,8 @@ class ImageExtraction:
     def all_segments(self) -> list[str]:
         """Everything worth scanning, visible content first."""
         return [s for s in [self.visible_text, *self.hidden_text,
-                            *self.rescaled_text, *self.metadata_text]
+                            *self.rescaled_text, *self.metadata_text,
+                            *self.bitplane_text]
                 if s and s.strip()]
 
     @property
@@ -364,7 +370,8 @@ def _metadata_text(image) -> list[str]:
 
 
 def extract_image(data: bytes, *,
-                  scaling_passes: tuple[int, ...] | None = None) -> ImageExtraction:
+                  scaling_passes: tuple[int, ...] | None = None,
+                  bitplanes: bool = True) -> ImageExtraction:
     """Read an image as-is, equalized, and at each encoder resolution.
 
     ``scaling_passes`` overrides :data:`SCALING_PASSES`; pass ``()`` to skip
@@ -377,6 +384,9 @@ def extract_image(data: bytes, *,
     A frame pulled out of a stream has already been through sampling and
     decode, so that prediction does not hold, and the passes buy little
     against four times the cost.
+
+    ``bitplanes=False`` skips the low-bit read, for the same reason: a frame
+    decoded from a lossy video stream has had its low bits rewritten.
     """
     out = ImageExtraction()
     if not data or len(data) > MAX_IMAGE_BYTES:
@@ -391,6 +401,7 @@ def extract_image(data: bytes, *,
 
         image = Image.open(io.BytesIO(data))
         image.load()
+        original = image
         image = image.convert("RGB")
     except Exception:  # noqa: BLE001 - not an image, or a corrupt one
         return out
@@ -456,6 +467,14 @@ def extract_image(data: bytes, *,
     out.hidden_text = hidden
     out.rescaled_text = rescaled
     out.metadata_text = _metadata_text(image)
+    if bitplanes:
+        from mochi.preprocess.bitplane import read_bitplanes
+
+        # From the image as delivered: converting to RGB first would drop an
+        # alpha channel, which is a place LSB tools write.
+        out.bitplane_text = read_bitplanes(original)
+        if out.bitplane_text:
+            out.add_flag(F.IMAGE_BITPLANE_TEXT_DETECTED)
     if out.metadata_text:
         out.add_flag(F.IMAGE_METADATA_EXTRACTED)
     if plain or hidden:

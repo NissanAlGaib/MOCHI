@@ -114,7 +114,7 @@ request and inspects what it read like any other text:
 
 | Attachment | Content block | What MOCHI reads |
 |---|---|---|
-| Image | `image_url` (inline `data:` only) | OCR, plus a contrast-boosted pass for pale text and a rescaled pass for images that change when shrunk; PNG/EXIF text |
+| Image | `image_url` (inline `data:` only) | OCR, plus a contrast-boosted pass for pale text and a rescaled pass for images that change when shrunk; PNG/EXIF text; text hidden in the lowest bit planes (LSB steganography, PNG and other lossless formats) |
 | Audio | `input_audio` | Speech transcript; ID3 tags |
 | Video | `video` | Frames (OCR) and soundtrack (speech) |
 | PDF, text, HTML file | `file` (inline `file_data`) | Page text, white or tiny text included; PDF metadata (Title, Keywords...); for HTML, hidden elements and comments |

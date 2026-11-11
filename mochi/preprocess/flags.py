@@ -82,6 +82,11 @@ class NormalizationFlag(StrEnum):
     # vision encoder parses pixels - but applications that lift captions and
     # descriptions into the prompt turn them into text the model does obey.
     IMAGE_METADATA_EXTRACTED = "image_metadata_extracted"
+    # Text decoded from the image's lowest bit planes (LSB steganography).
+    # Invisible to a reviewer and unreadable to a vision encoder, which
+    # shrinks the image first; dangerous wherever something decodes it, such
+    # as an agent with a code tool asked to "check the bit plane".
+    IMAGE_BITPLANE_TEXT_DETECTED = "image_bitplane_text_detected"
 
     # Speech transcribed from a recording. The same hole images had: a
     # payload spoken aloud reaches a transcribing application as text the

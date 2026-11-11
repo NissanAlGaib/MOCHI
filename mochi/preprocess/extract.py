@@ -367,7 +367,7 @@ def _image(block: dict) -> Extraction:
     # type carries no flag of its own.
     return Extraction(
         visible_text=found.visible_text,
-        hidden_text=[*found.hidden_text, *found.rescaled_text],
+        hidden_text=[*found.hidden_text, *found.rescaled_text, *found.bitplane_text],
         metadata_text=list(found.metadata_text),
         flags=list(found.flags),
         ran=found.ocr_ran,

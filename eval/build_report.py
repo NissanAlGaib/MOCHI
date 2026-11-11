@@ -56,6 +56,8 @@ SOURCES = [
     ("video vs mistral", REPORTS / "video_runs.jsonl", "av"),
     ("PDFs vs mistral", REPORTS / "pdf_runs.jsonl", "doc"),
     ("web pages vs mistral", REPORTS / "web_runs.jsonl", "doc"),
+    ("bit-plane images (blue LSB)", REPORTS / "bitplane_blue.jsonl", "detect"),
+    ("bit-plane images (RGB LSB)", REPORTS / "bitplane_rgb.jsonl", "detect"),
 ]
 BENIGN = [
     ("e5-fine-tuned", REPORTS / "benign_runs.jsonl"),
@@ -500,6 +502,14 @@ def sheet_summary(wb, sims, detects, benign, taglish, extra):
         "detector reads mangled characters as obfuscation, which is worth "
         "knowing in its own right — any OCR noise reaching it inflates the "
         "score.",
+        "The bit-plane rows are detection only. The 61 image attacks are "
+        "hidden in the lowest bits of an ordinary report image, which no "
+        "reviewer can see and no vision model can read (its resize leaves "
+        "the hidden bits at noise level), so there is no undefended success "
+        "rate to mitigate. The danger is an agent with a code tool, or an "
+        "app that runs a steganography decoder. Before MOCHI read bit planes "
+        "(2026-11-11) it detected none of them: OCR sees only the report. "
+        "See reports/bitplane_detection.txt for both figures.",
         "Do not compare DETECTION rates across the modality arms. The same "
         "61 attacks were rendered as images, speech and video, but they are "
         "not equally viable in each channel: 45 were blocked as images "
