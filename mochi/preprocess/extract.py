@@ -69,8 +69,14 @@ class Extraction:
 
     @property
     def all_segments(self) -> list[str]:
-        """Everything worth scanning, visible content first."""
-        return [s for s in [self.visible_text, *self.hidden_text,
+        """Everything worth scanning, visible content first.
+
+        A hidden text already inside ``visible_text`` is not repeated: a PDF's
+        white text is both, listed as hidden only so detection can score it
+        alone, and the model should not be handed it twice.
+        """
+        return [s for s in [self.visible_text,
+                            *(h for h in self.hidden_text if h not in self.visible_text),
                             *self.metadata_text] if s and s.strip()]
 
     @property
@@ -299,12 +305,13 @@ def _file(block: dict) -> Extraction:
 
     found = extract_file(data, mime_type=mime, filename=filename)
     # Text a reader cannot see - white on white, a zero-size run - extracts
-    # exactly like the rest, so it lands in visible_text and is scanned all
-    # the same. See file_extract's docstring for why visibility is not used
-    # as a signal. Metadata stays separate: the model never renders it, but
-    # ingestion pipelines lift it into the prompt.
+    # exactly like the rest, so it stays in visible_text and is scanned with
+    # the page. It is also listed as hidden_text so detection scores it
+    # alone; see file_extract's docstring. Metadata stays separate: the model
+    # never renders it, but ingestion pipelines lift it into the prompt.
     return Extraction(
         visible_text=found.body_text,
+        hidden_text=list(found.hidden_text),
         metadata_text=list(found.metadata_text),
         flags=list(found.flags),
         ran=found.error is None,

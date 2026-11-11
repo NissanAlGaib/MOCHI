@@ -120,6 +120,11 @@ request and inspects what it read like any other text:
 | PDF, text, HTML file | `file` (inline `file_data`) | Page text, white or tiny text included; PDF metadata (Title, Keywords...); for HTML, hidden elements and comments |
 | Web page from a tool | `tool` message | The visible text and every hidden channel: `display:none`, comments, `alt`/`title` attributes |
 
+Text a reader cannot see (pale, white, tiny or bit-plane text, and metadata)
+is checked twice: once with the rest of the attachment, and once on its own.
+Without the second check, a short payload hidden under a page of ordinary text
+was judged together with that page and often slipped through.
+
 A remote image URL or a `file_id` is not fetched: the bytes are not in the
 request, and fetching attacker-chosen URLs would be a worse hole. Such a block
 is reported as unread, not clean. `forward_mode="convert"` (the proxy's

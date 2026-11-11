@@ -67,6 +67,9 @@ class NormalizationFlag(StrEnum):
     HTML_COMMENT_EXTRACTED = "html_comment_extracted"
     ATTRIBUTE_TEXT_EXTRACTED = "attribute_text_extracted"
     FILE_METADATA_EXTRACTED = "file_metadata_extracted"
+    # Text a PDF draws in white or below one point: in the extraction, which
+    # is what the model reads, and nowhere on the page a reader sees.
+    FILE_HIDDEN_TEXT_DETECTED = "file_hidden_text_detected"
 
     # --- Images ---
     # Text recovered from an image by OCR. Without this, a payload rendered

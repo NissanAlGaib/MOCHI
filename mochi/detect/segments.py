@@ -12,11 +12,27 @@ execution logic. Trust therefore tracks attacker reach.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from mochi.preprocess import NormalizationResult, preprocess_segment
+from mochi.preprocess import NormalizationResult, normalize, preprocess_segment
+
+#: Score each hidden attachment channel on its own as well as inside the
+#: merged attachment text. See :func:`_attachment_block`. A module switch, not
+#: a setting: the evaluation flips it to measure the merged-only behaviour on
+#: the same build, and no deployment has a reason to turn it off.
+SCORE_HIDDEN_CHANNELS_ALONE = True
+
+#: Words (two or more letters) a hidden channel must hold to be scored alone.
+#: An instruction is a sentence; a fragment is OCR noise, and noise alone is
+#: what the classifier is least calibrated on - measured, the contrast pass
+#: on a benign image read "sbecauseoneof", which scored 0.61 by itself and
+#: blocked an exchange-rate question. Every one of the 61 attack payloads
+#: holds at least four. A shorter channel is still scanned in the merged text.
+MIN_CHANNEL_WORDS = 3
+_WORD = re.compile(r"[^\W\d_]{2,}")
 
 
 class SourceTag(StrEnum):
@@ -124,12 +140,15 @@ class Segment:
 
 
 def _text_from_content(content: Any, *,
-                       read_images: bool = False) -> tuple[str, list[str]]:
+                       read_images: bool = False) -> tuple[str, list[str], list[str]]:
     """Flatten message content, which may be a string or multimodal blocks.
 
-    Returns ``(text, flags)``. With ``read_images``, image blocks are OCR'd
-    and the recovered text joins the rest; without it they are dropped, and a
-    payload rendered as pixels is invisible to every downstream stage.
+    Returns ``(text, flags, channels)``. With ``read_images``, attachments
+    are read and the recovered text joins the rest; without it they are
+    dropped, and a payload rendered as pixels is invisible to every
+    downstream stage. ``channels`` are the attachments' hidden and metadata
+    texts, each one also to be scored on its own - see
+    :func:`_attachment_block`.
 
     **This is the function detection actually reads.**
     ``ChatCompletionRequest.inspectable_text`` looks similar and feeds only
@@ -139,29 +158,44 @@ def _text_from_content(content: Any, *,
     perfectly in isolation.
     """
     if isinstance(content, str):
-        return content, []
+        return content, [], []
     if not isinstance(content, list):
-        return "", []
+        return "", [], []
 
     parts: list[str] = []
     flags: list[str] = []
+    channels: list[str] = []
     for block in content:
         if not isinstance(block, dict):
             continue
         if isinstance(block.get("text"), str):
             parts.append(block["text"])
         elif read_images:
-            text, found = _attachment_block(block)
+            text, found, hidden = _attachment_block(block)
             if text:
                 parts.append(text)
             for flag in found:
                 if flag not in flags:
                     flags.append(flag)
-    return "\n".join(parts), flags
+            channels += [c for c in hidden if c not in channels]
+    return "\n".join(parts), flags, channels
 
 
-def _attachment_block(block: dict) -> tuple[str, list[str]]:
+def _attachment_block(block: dict) -> tuple[str, list[str], list[str]]:
     """Recover text from one non-text content block, whatever modality it is.
+
+    Returns ``(text, flags, channels)``: everything read, merged; the
+    extraction flags; and the hidden and metadata texts on their own.
+
+    **Why the channels come back separately.** The merged text is what the
+    model would read, so it is scored as it is. But a short payload inside a
+    page of ordinary visible text is scored as that page: measured on attack
+    T1-08 hidden in an image's low bits, 0.99 alone and 0.24 with the report
+    text it was hidden in. Content placed where a reader cannot see it has
+    no innocent reason to be judged in the company of the content they can,
+    so each hidden channel is also scored by itself - the same way hidden
+    HTML already is (``preprocessor._merge``). Visible text is not split
+    out: it is what the user sees, and it is already scored with their words.
 
     Dispatches through ``mochi.preprocess.extract``, which owns the registry,
     so adding audio or video needs no change here. Imported lazily: a
@@ -177,9 +211,11 @@ def _attachment_block(block: dict) -> tuple[str, list[str]]:
         from mochi.preprocess.extract import extract_from_content_block
 
         result = extract_from_content_block(block)
-        return result.text, list(result.flags)
+        channels = [c for c in [*result.hidden_text, *result.metadata_text]
+                    if c and c.strip()]
+        return result.text, list(result.flags), channels
     except Exception:  # noqa: BLE001 - extraction runtime absent or broken
-        return "", []
+        return "", [], []
 
 
 def segment_tagged(context: Any) -> list[Segment]:
@@ -250,7 +286,7 @@ def segment_messages(messages: list[Any], *,
     segments: list[Segment] = []
     for index, message in enumerate(messages):
         role = (getattr(message, "role", "") or "").lower()
-        text, image_flags = _text_from_content(
+        text, image_flags, channels = _text_from_content(
             getattr(message, "content", None), read_images=read_images
         )
         if not text.strip():
@@ -261,6 +297,7 @@ def segment_messages(messages: list[Any], *,
             raw_text=text,
         )
         segment.image_flags = image_flags
+        segment.attachment_channels = channels
         segments.append(segment)
     return segments
 
@@ -296,4 +333,31 @@ def build_segments(request: Any, *, read_images: bool = False) -> list[Segment]:
         for flag in getattr(segment, "image_flags", ()) or ():
             if flag not in segment.normalized.flags:
                 segment.normalized.flags.append(flag)
+        if SCORE_HIDDEN_CHANNELS_ALONE:
+            _add_channels(segment, getattr(segment, "attachment_channels", ()) or ())
     return segments
+
+
+def _add_channels(segment: Segment, channels: Any) -> None:
+    """Make each hidden attachment channel a scannable variant of its segment.
+
+    A variant, not a segment of its own: it inherits the segment's source
+    and trust, so a payload hidden in a user's upload is still refused and
+    one in a tool result still redacted. Stage I and Stage II already score
+    every variant separately and keep the worst, which is the whole change.
+    Each channel is normalized first, so an encoded or zero-width payload is
+    decoded the same as it would be anywhere else, and the word floor
+    (:data:`MIN_CHANNEL_WORDS`) is met by any one of those readings.
+    """
+    variants = segment.normalized.variants
+    for channel in channels:
+        read = normalize(channel)
+        readings = (read.text, *read.variants)
+        if max(len(_WORD.findall(text)) for text in readings) < MIN_CHANNEL_WORDS:
+            continue
+        for text in readings:
+            if text and text.strip() and text not in variants:
+                variants.append(text)
+        for flag in read.flags:
+            if flag not in segment.normalized.flags:
+                segment.normalized.flags.append(flag)
