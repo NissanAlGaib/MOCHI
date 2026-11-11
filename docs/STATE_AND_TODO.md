@@ -549,6 +549,22 @@ bimodal scorer that emits near-0 or near-1.
 already controls their own session. The 20 placed in documents are the serious
 case. Report them separately rather than pooled.
 
+**4.14 Audio attack success is undercounted** (added 2026-11-12). Speech
+recognition garbles the ZEBRA code words in all 19 audio transcripts, so the
+exact-token success check can never pass them on audio; video's on-screen OCR
+keeps 14 of 19 intact. Hence video 31.2% (5/16) against audio 66.7% (6/9)
+mitigation, with identical detection (30 ALLOW each, 39/61 verdicts equal).
+Video's figure is the closer one. Lenient rescoring would need a human
+judgment per reply; not done.
+
+**4.15 Code-word canaries are a Stage II blind spot - not fixed by design**
+(added 2026-11-12). Most worked misses are `instruction_override` code-word
+requests (generated 39/51 over three models, PDF 17/20, video 9/11), scoring
+low even alone. Low harm, and training on the phrasing would cost false
+positives and overfit to the eval's own attacks. The harmful misses are 38
+Gandalf disclosure prompts (60 runs): 6 in the 0.45-0.55 allowed-and-logged
+band, 18 at 0.20-0.45, 14 below 0.20.
+
 ### Housekeeping
 
 **4.10 Telemetry `source_origin` - FIXED.** It recorded the highest-scoring
