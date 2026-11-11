@@ -565,6 +565,23 @@ training on the phrasing would cost false positives and overfit to the eval's
 own attacks. The harmful misses are 40 Gandalf disclosure prompts: 6 in the
 0.45-0.55 allowed-and-logged band, 19 at 0.20-0.45, 15 below 0.20.
 
+**4.16 Executables are recognised but not inspected - not implemented by
+design** (added 2026-11-12). Code and config files are now read (by type,
+extension, or because their bytes are text), and an attachment that cannot be
+read is no longer allowed silently: `MOCHI_UNREADABLE_ATTACHMENTS` blocks it
+when inspecting and strips it when converting. Executables (PE, ELF, Mach-O)
+are named and flagged `file_executable` but not searched for injections,
+because:
+(a) a model cannot run machine code, and an executable's bytes are noise to
+it, so a compiled-in instruction does not reach it as an instruction;
+(b) the danger is an agent that runs the file, which is malware analysis - a
+different problem with its own tools;
+(c) string extraction yields fragment noise, which the classifier is least
+calibrated on (one OCR fragment scored 0.61 and blocked a benign question).
+Remote attachments (URLs, file ids) are flagged `attachment_remote` and never
+fetched (SSRF), so they stay uninspected. None of the attack corpora use code
+files or executables, so no reported figure moves.
+
 ### Housekeeping
 
 **4.10 Telemetry `source_origin` - FIXED.** It recorded the highest-scoring

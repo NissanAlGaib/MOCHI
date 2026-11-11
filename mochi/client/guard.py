@@ -86,6 +86,8 @@ class GuardedCall:
     attachments_converted: int = 0
     outbound_modified: bool = False
     outbound_findings: list[str] = field(default_factory=list)
+    unread: list[str] = field(default_factory=list)
+    """Attachments that could not be inspected, and why."""
     inspection: InspectionResult | None = None
     record: TelemetryRecord | None = None
 
@@ -103,6 +105,7 @@ class _Config:
     stage2_device: str = "cpu"
     read_attachments: bool = False
     forward_mode: str = "inspect"
+    unreadable_attachments: str = "auto"
     sanitize_untrusted: bool = True
     resolve_band_by_trust: bool = True
     enforce_on_trusted: bool = False
@@ -274,6 +277,15 @@ def _enforce(request: ChatCompletionRequest, config: _Config,
         call.decision = verdict.decision.value
         call.reason = verdict.reason
         call.spans_redacted = len(verdict.targets)
+
+    # Attachments that could not be read, by the same policy as the gateway.
+    if config.read_attachments:
+        from mochi.mitigate.unread import enforce_unread, resolve_policy
+
+        call.unread = [f"{u.origin} {u.name}: {u.reason}" for u in enforce_unread(
+            request, verdict,
+            policy=resolve_policy(config.unreadable_attachments, config.forward_mode),
+            flags=record.normalization_flags)]
 
     if verdict.decision is Decision.BLOCK:
         call.decision = "block"
@@ -573,6 +585,11 @@ def guard(client: Any, **settings: Any) -> Any:
         read_attachments: Extract text from images, audio, video and attached
             documents (PDF, text, HTML).
         forward_mode: ``inspect`` or ``convert``.
+        unreadable_attachments: What to do with an attachment that could
+            not be read (an executable, a corrupt file): ``block``,
+            ``strip`` (replace it with a marker), ``allow``, or ``auto`` -
+            strip when converting, block when inspecting, because then the
+            model would receive the unread bytes.
         enable_stage2: Off disables the semantic stage, and with it the torch
             import.
         enable_outbound: Inspect responses as well as requests.
@@ -591,6 +608,9 @@ def guard(client: Any, **settings: Any) -> Any:
             f"guard() got unexpected setting(s): {', '.join(sorted(unknown))}. "
             f"Valid: {', '.join(sorted(_Config.__dataclass_fields__))}")
     config = _Config(**settings)
+    from mochi.mitigate.unread import resolve_policy
+
+    resolve_policy(config.unreadable_attachments, config.forward_mode)  # fail now
 
     found = []
     for path, method, fmt, streams in SURFACES:

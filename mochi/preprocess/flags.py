@@ -70,6 +70,15 @@ class NormalizationFlag(StrEnum):
     # Text a PDF draws in white or below one point: in the extraction, which
     # is what the model reads, and nowhere on the page a reader sees.
     FILE_HIDDEN_TEXT_DETECTED = "file_hidden_text_detected"
+    # A file with no recognised type, read because its bytes are text.
+    FILE_READ_AS_TEXT = "file_read_as_text"
+    # A native executable: recognised, named, and not read. See extract_file.
+    FILE_EXECUTABLE = "file_executable"
+    # An attachment carried in the request that could not be read, and one
+    # held elsewhere (a URL, an uploaded-file id) that is never fetched.
+    # Raised on the request, not the segment, by mochi.mitigate.unread.
+    ATTACHMENT_UNREAD = "attachment_unread"
+    ATTACHMENT_REMOTE = "attachment_remote"
 
     # --- Images ---
     # Text recovered from an image by OCR. Without this, a payload rendered

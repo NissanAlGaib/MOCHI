@@ -98,6 +98,11 @@ class Settings:
     outbound_remove_click_urls: bool
     allow_buffered_streaming: bool
 
+    unreadable_attachments: str = "auto"
+    """An attachment MOCHI could not read: ``block``, ``strip``, ``allow``, or
+    ``auto`` - strip when converting, block when inspecting. See
+    ``mochi.mitigate.unread``."""
+
     # Providers other than OpenAI, selected with TARGET_LLM_PROVIDER. Each
     # needs only its key; the base URLs are there for proxies and tests.
     anthropic_api_key: str = ""
@@ -136,6 +141,14 @@ def _get_bool(name: str, default: bool) -> bool:
     if raw is None or raw.strip() == "":
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _get_policy() -> str:
+    raw = (os.getenv("MOCHI_UNREADABLE_ATTACHMENTS") or "auto").strip().lower()
+    if raw not in ("auto", "block", "strip", "allow"):
+        raise ConfigError(
+            f"MOCHI_UNREADABLE_ATTACHMENTS must be auto, block, strip or allow, got {raw!r}")
+    return raw
 
 
 @lru_cache(maxsize=1)
@@ -208,6 +221,7 @@ def get_settings() -> Settings:
         # incremental streaming and callers should opt in knowingly - see
         # docs/BUILD_PLAN.md Phase 11.
         allow_buffered_streaming=_get_bool("MOCHI_ALLOW_BUFFERED_STREAMING", False),
+        unreadable_attachments=_get_policy(),
         anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", "").strip(),
         anthropic_base_url=os.getenv(
             "ANTHROPIC_BASE_URL", "https://api.anthropic.com").strip().rstrip("/"),

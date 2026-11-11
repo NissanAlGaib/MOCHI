@@ -103,6 +103,7 @@ message roles.
 | `stage2_device` | `"cpu"` | |
 | `read_attachments` | `False` | Read attachments: OCR for images, transcription for audio and video, text from PDFs and other documents |
 | `forward_mode` | `"inspect"` | `"convert"` replaces attachments with their text |
+| `unreadable_attachments` | `"auto"` | an attachment that could not be read: `"block"`, `"strip"`, `"allow"`; auto blocks when inspecting, strips when converting |
 | `enable_outbound` | `True` | inspect responses as well as requests |
 | `allow_buffered_streaming` | `False` | see below |
 | `on_verdict` | `None` | callback after every call, including blocked ones |

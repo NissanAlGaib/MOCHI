@@ -390,6 +390,20 @@ async def _inspect_and_enforce(request: Request, parsed: ChatCompletionRequest,
         enforce_on_trusted=settings.enforce_on_trusted,
         trusted_digests=getattr(request.app.state, "trusted_digests", frozenset()),
     )
+
+    # An attachment that could not be read was allowed silently before: an
+    # empty extraction scores clean. See mochi.mitigate.unread.
+    if settings.read_images:
+        from mochi.mitigate.unread import enforce_unread, resolve_policy
+
+        unread = enforce_unread(
+            parsed, verdict,
+            policy=resolve_policy(settings.unreadable_attachments, settings.forward_mode),
+            flags=record.normalization_flags)
+        for item in unread:
+            logger.info("UNREAD %s %s %s (%s)", record.request_id, item.origin,
+                        item.name, item.reason)
+
     record.mitigation_action_applied = verdict.action
     record.mitigation_detail = verdict.reason
     record.redacted_origins = verdict.redacted_origins

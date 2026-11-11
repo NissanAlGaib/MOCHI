@@ -66,6 +66,8 @@ class Extraction:
     metadata_text: list[str] = field(default_factory=list)
     flags: list[str] = field(default_factory=list)
     ran: bool = False
+    reason: str | None = None
+    """Why it did not run, when it did not and the extractor knows."""
 
     @property
     def all_segments(self) -> list[str]:
@@ -242,6 +244,102 @@ def convert_attachments(request: Any) -> int:
     return replaced
 
 
+@dataclass
+class Unread:
+    """An attachment MOCHI could not inspect."""
+
+    origin: str
+    """Where it is, e.g. ``messages[1]``."""
+    kind: str
+    """``image``, ``audio``, ``video`` or ``document``."""
+    name: str
+    """Its filename when it has one, else its type."""
+    reason: str
+    inline: bool
+    """True when its bytes are in the request - so the model would receive
+    exactly what MOCHI could not read. False for a URL or uploaded-file id,
+    which nothing in MOCHI fetches."""
+
+
+def _payload(block: dict) -> Any:
+    """The attachment's data or address, wherever this block type keeps it."""
+    if block.get("type") == "input_file" and not block.get("input_file"):
+        return block.get("file_data") or block.get("file_url") or block.get("file_id")
+    for key in ("image_url", "image", "input_audio", "audio", "audio_url",
+                "video", "video_url", "file", "input_file"):
+        source = block.get(key)
+        if source is None:
+            continue
+        if isinstance(source, dict):
+            return (source.get("url") or source.get("data") or source.get("file_data")
+                    or source.get("file_id"))
+        return source
+    return None
+
+
+def _inline(block: dict) -> bool:
+    raw = _payload(block)
+    if not isinstance(raw, str) or not raw:
+        return False
+    if raw.lower().startswith(("http://", "https://")):
+        return False
+    inner = block.get("file") if isinstance(block.get("file"), dict) else block
+    return not (block.get("type") in ("file", "input_file") and not inner.get("file_data"))
+
+
+def find_unread(request: Any) -> list[Unread]:
+    """Every attachment in ``request`` that extraction could not read.
+
+    Extraction results are cached from inspection, so this is a lookup.
+    """
+    unread: list[Unread] = []
+    for index, message in enumerate(getattr(request, "messages", []) or []):
+        content = getattr(message, "content", None)
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict) or block.get("type") not in EXTRACTORS:
+                continue
+            found = extract_from_content_block(block)
+            if found.ran:
+                continue
+            inner = block.get("file") if isinstance(block.get("file"), dict) else block
+            inline = _inline(block)
+            unread.append(Unread(
+                origin=f"messages[{index}]",
+                kind=KINDS.get(block.get("type"), "attachment"),
+                name=inner.get("filename") or block.get("type"),
+                reason=found.reason or ("could not be read" if inline
+                                        else "held at a remote address, never fetched"),
+                inline=inline,
+            ))
+    return unread
+
+
+UNREAD_MARKER = "[{kind} could not be read by MOCHI]"
+
+
+def strip_unread(request: Any) -> int:
+    """Replace every inline attachment that could not be read with a marker.
+
+    The same marker conversion has always used, so the model is told an
+    attachment was there and answers accordingly rather than as if nothing
+    was sent. Remote references are left alone. Returns the count replaced.
+    """
+    stripped = 0
+    for message in getattr(request, "messages", []) or []:
+        content = getattr(message, "content", None)
+        if not isinstance(content, list):
+            continue
+        for position, block in enumerate(content):
+            if (isinstance(block, dict) and block.get("type") in EXTRACTORS
+                    and _inline(block) and not extract_from_content_block(block).ran):
+                content[position] = {"type": "text", "text": UNREAD_MARKER.format(
+                    kind=KINDS.get(block.get("type"), "attachment"))}
+                stripped += 1
+    return stripped
+
+
 # --- documents --------------------------------------------------------------
 #
 # Until this was registered, a PDF attached to a chat request reached the model
@@ -315,6 +413,7 @@ def _file(block: dict) -> Extraction:
         metadata_text=list(found.metadata_text),
         flags=list(found.flags),
         ran=found.error is None,
+        reason=found.error,
     )
 
 

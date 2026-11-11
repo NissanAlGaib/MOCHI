@@ -146,6 +146,8 @@ request and inspects what it read like any other text:
 | Audio | `input_audio` | Speech transcript; ID3 tags |
 | Video | `video` | Frames (OCR) and soundtrack (speech) |
 | PDF, text, HTML file | `file` (inline `file_data`) | Page text, white or tiny text included; PDF metadata (Title, Keywords...); for HTML, hidden elements and comments |
+| Code and config files | `file` | The whole source, comments and strings included: `.py .js .ts .java .go .rs .sh .sql .yaml` and ~60 more, or any file whose bytes are text |
+| Executable | `file` | Recognised and **not** read; see Known limitations |
 | Web page from a tool | `tool` message | The visible text and every hidden channel: `display:none`, comments, `alt`/`title` attributes |
 
 Text a reader cannot see (pale, white, tiny or bit-plane text, and metadata)
@@ -158,6 +160,14 @@ request, and fetching attacker-chosen URLs would be a worse hole. Such a block
 is reported as unread, not clean. `forward_mode="convert"` (the proxy's
 default) replaces each attachment with the text MOCHI read, so a text-only
 model can serve it and the model sees exactly what was inspected.
+
+An attachment carried in the request that MOCHI cannot read (an executable,
+an archive, a corrupt file) used to be allowed silently, because an empty
+reading scores clean. It is now handled by `MOCHI_UNREADABLE_ATTACHMENTS`
+(`unreadable_attachments=` for the wrapper). The values are `block`, `strip`
+(replace it with a marker), and `allow` (forward it, flagged). The default is
+`auto`, which strips when converting and blocks when inspecting, because an
+inspecting deployment would hand the model the unread bytes.
 
 ### Running from a clone
 
@@ -364,6 +374,30 @@ walkthrough.
 - **Stored conversations are not inspected.** A Responses API request with
   `previous_response_id` carries only the new turn; the earlier ones live at
   OpenAI. Such a request can only be forwarded to OpenAI.
+- **Executables are recognised, not inspected.** A Windows, Linux or macOS
+  executable attached to a request is named and flagged
+  (`file_executable`), but no attempt is made to find an injection inside it.
+  It is then handled by `MOCHI_UNREADABLE_ATTACHMENTS`: refused when the
+  original would be forwarded, replaced with a marker when converting. Not
+  implemented, deliberately:
+  - a language model cannot run machine code, and the bytes it is sent are
+    noise to it, so an instruction compiled into a binary does not reach the
+    model as an instruction;
+  - the real danger is an agent that *runs* the file, and that is malware
+    analysis (signatures, sandboxing, behaviour), a different problem from
+    prompt injection with mature tools of its own;
+  - pulling printable strings out of a binary yields thousands of fragments.
+    That is the noise the classifier is least calibrated on: one OCR fragment
+    alone scored 0.61 and blocked a benign question. So it would add false
+    positives for little gain.
+
+  A deployment that hands attachments to a code-execution tool should put a
+  malware scanner in front of that tool. MOCHI does not replace one.
+- **Remote attachments are never fetched.** An image URL or an uploaded-file
+  id is flagged (`attachment_remote`) and forwarded. Fetching it would let
+  any caller make MOCHI request a host of their choosing, and refusing would
+  break ordinary image-URL applications. Send attachments inline to have them
+  inspected.
 - **Cross-provider translation covers text, images, PDFs and function
   tools.** Built-in provider tools (web search, code execution) and thinking
   blocks are forwarded only to their own provider.
