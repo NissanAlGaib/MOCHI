@@ -315,6 +315,36 @@ def sheet_summary(wb, sims, detects, benign, taglish, extra):
         pct(ws, 4, start)
         ws.append([])
 
+    # Attacks from outside the project, measured before and after the
+    # 2026-11-12 fixes. See eval/heldout_attacks.py.
+    heldout_path = REPORTS / "heldout_attacks.jsonl"
+    if heldout_path.exists():
+        rows = [json.loads(line) for line in heldout_path.read_text("utf-8").splitlines()
+                if line.strip()]
+        title(ws, "Held-out attacks — external sets, detection only, before and after "
+                  "the 2026-11-12 fixes")
+        head(ws, ["set", "attacks", "detected before", "detected after", "source"])
+        start = ws.max_row + 1
+        source = {"tt_": "Tensor Trust (Toyer et al., ICLR 2024)",
+                  "liu_": "Liu et al., USENIX Security 2024 - released attack code",
+                  "leet": "Liu attacks rewritten in leetspeak (derived)",
+                  "many_shot_attack": "generated; FLAG rate, never blocks",
+                  "many_shot_benign": "generated benign logs; FLAG rate"}
+        for name in dict.fromkeys(r["set"] for r in rows):
+            cells = []
+            for tag in ("before", "after"):
+                subset = [r for r in rows if r["set"] == name and r["tag"] == tag]
+                hit = (sum("many_shot_dialogue" in r["flags"] for r in subset)
+                       if name.startswith("many_shot") else
+                       sum(r["decision"] != "ALLOW" for r in subset))
+                cells.append(hit / len(subset) if subset else None)
+            n = sum(1 for r in rows if r["set"] == name and r["tag"] == "after")
+            ws.append([name, n, *cells,
+                       next((v for k, v in source.items() if name.startswith(k)), "")])
+        for col in (3, 4):
+            pct(ws, col, start)
+        ws.append([])
+
     if benign:
         title(ws, "False positives — ordinary customer queries, no attacks")
         head(ws, ["weights", "dataset", "queries", "refused", "FPR"])
@@ -530,6 +560,23 @@ def sheet_summary(wb, sims, detects, benign, taglish, extra):
         "question; that floor also cost two concealed-image detections that "
         "came only from one-word fragments. The paired comparison is in "
         "reports/attachment_channels.txt.",
+        "Since 2026-11-12, five gaps that the literature ranks highest are "
+        "closed with rules, not retraining (the Stage II weights are "
+        "unchanged): Stage I patterns for forged delimiters and chat-template "
+        "tokens, the generic fake completion, and vague system-prompt "
+        "extraction; a leetspeak reading in normalization; a many-shot flag "
+        "(signal only); and an optional declared-secrets outbound check, off "
+        "in every run here. Only items whose text a fix touches were re-run; "
+        "no benign item in any set is touched, so every false-positive rate "
+        "is unchanged by construction. Generated corpus FNR 35.0% -> 33.0% "
+        "(T1-15 and T3-15, fake system tags, now blocked); Gandalf detection "
+        "14.7% -> 14.0%; bit-plane 19.7% -> 16.4%; concealed images 24.6% -> "
+        "19.7%. The visible-image arm's 25.0% -> 26.2% is not a regression: "
+        "T3-01 had errored with no verdict and now completes, unread by OCR. "
+        "On held-out attacks (table above) the gain is small except for "
+        "leetspeak: Tensor Trust's human attacks barely move, and Liu et "
+        "al.'s fake completions, which forge a task-specific answer rather "
+        "than 'task complete', are still missed.",
         "Do not compare DETECTION rates across the modality arms. The same "
         "61 attacks were rendered as images, speech and video, but they are "
         "not equally viable in each channel: 45 were blocked as images "

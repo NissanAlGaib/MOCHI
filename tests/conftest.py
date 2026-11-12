@@ -62,6 +62,7 @@ TEST_ENVIRONMENT = {
     "OPENAI_API_KEY": "sk-test-key-not-real",
     "OPENAI_BASE_URL": "https://api.openai.com/v1",
     "MOCHI_UNREADABLE_ATTACHMENTS": "auto",
+    "MOCHI_PROTECTED_SECRETS_FILE": "",
     "ANTHROPIC_API_KEY": "",
     "GEMINI_API_KEY": "",
     "GOOGLE_API_KEY": "",

@@ -60,6 +60,15 @@ class NormalizationFlag(StrEnum):
     HEX_DECODED = "hex_decoded"
     ROT13_DECODED = "rot13_decoded"
     URL_ENCODED_DECODED = "url_encoded_decoded"
+    # Digits and symbols standing in for letters: "1gn0r3 pr3v10us". The
+    # de-leeted reading is scored as a variant; see decode_leetspeak.
+    LEETSPEAK_DECODED = "leetspeak_decoded"
+
+    # --- Structure ---
+    # A long run of fake User:/Assistant: turns in one message - the shape of
+    # a many-shot jailbreak (Anil et al., 2024). A signal only: pasted chat
+    # logs look the same.
+    MANY_SHOT_DIALOGUE = "many_shot_dialogue"
 
     # --- Markup / document structure ---
     HTML_STRIPPED = "html_stripped"

@@ -101,6 +101,21 @@ async def lifespan(app: FastAPI):
             "Declare the prompt to exempt it."
         )
 
+    # Declared secrets, removed from every response however they are disguised.
+    # Read once; a missing file is fatal for the same reason as the prompt file.
+    app.state.secrets = []
+    if settings.protected_secrets_file:
+        path = Path(settings.protected_secrets_file)
+        if not path.exists():
+            raise RuntimeError(
+                f"MOCHI_PROTECTED_SECRETS_FILE points at {path}, which does not "
+                "exist. Remove the setting or create the file.")
+        app.state.secrets = [line.strip() for line in
+                             path.read_text(encoding="utf-8").splitlines()
+                             if line.strip() and not line.startswith("#")]
+        logger.info("%d protected secret(s) loaded from %s",
+                    len(app.state.secrets), path)
+
     app.state.stage2 = None
     if settings.enable_stage2:
         from mochi.detect.stage2_semantic import get_detector as get_stage2
@@ -361,6 +376,7 @@ async def chat_completions(request: Request) -> Any:
                 completion,
                 protected=protected_text(inspection.segments),
                 remove_click_urls=settings.outbound_remove_click_urls,
+                secrets=getattr(request.app.state, "secrets", None),
             )
         _record_outbound(record, outbound)
 
@@ -559,7 +575,8 @@ async def _serve(request: Request, fmt_name: str, *,
             with stage_timer(record.latency, "outbound"):
                 _record_outbound(record, scan_completion(
                     completion, protected=protected,
-                    remove_click_urls=settings.outbound_remove_click_urls))
+                    remove_click_urls=settings.outbound_remove_click_urls,
+                    secrets=getattr(request.app.state, "secrets", None)))
         return fmt.response_from_chat(completion, model=None)
 
     if settings.enable_outbound:
@@ -567,7 +584,8 @@ async def _serve(request: Request, fmt_name: str, *,
         pseudo = {"choices": [{"message": {"content": text}} for text, _ in slots]}
         with stage_timer(record.latency, "outbound"):
             outbound = scan_completion(pseudo, protected=protected,
-                                       remove_click_urls=settings.outbound_remove_click_urls)
+                                       remove_click_urls=settings.outbound_remove_click_urls,
+                                       secrets=getattr(request.app.state, "secrets", None))
         for (text, write), choice in zip(slots, pseudo["choices"]):
             if choice["message"]["content"] != text:
                 write(choice["message"]["content"])

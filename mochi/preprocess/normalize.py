@@ -705,6 +705,64 @@ def unwrap_encodings(text: str) -> tuple[list[str], list[F]]:
     return variants, flags
 
 
+#: Leetspeak substitutions, digit or symbol -> letter. One reading only:
+#: ``1`` is ``i`` here, though it is sometimes ``l`` - the reading is scored,
+#: not shown, so it has to be close enough to read, not exact.
+LEET_MAP = str.maketrans({"0": "o", "1": "i", "3": "e", "4": "a", "5": "s",
+                          "7": "t", "8": "b", "@": "a", "$": "s", "!": "i",
+                          "|": "l"})
+#: A word that mixes letters with leet characters: ``1gn0r3``, ``pr3v10us``.
+_LEET_WORD = re.compile(r"(?=\S*[A-Za-z])(?=\S*[0134578@$!|])[A-Za-z0134578@$!|]{3,}")
+#: How many leet words a text needs before a decoded reading is made, and how
+#: many more common English words that reading must contain than the text did.
+MIN_LEET_WORDS = 3
+MIN_LEET_GAIN = 2
+
+
+def decode_leetspeak(text: str) -> str | None:
+    """A de-leeted reading of ``text``, when it is plausibly leetspeak.
+
+    Gated twice, because a decoded reading is scored on its own and noise is
+    what the classifier is least calibrated on - an OCR fragment once scored
+    0.61 alone and blocked an ordinary question. There must be at least
+    :data:`MIN_LEET_WORDS` words mixing letters and leet characters, and
+    decoding them must yield at least :data:`MIN_LEET_GAIN` more common
+    English words than the text had. Product codes and account references
+    (``4G``, ``2FA``, ``B2B``, ``MP3``) fail the second test: decoding them
+    makes nothing readable.
+    """
+    words = _LEET_WORD.findall(text)
+    if len(words) < MIN_LEET_WORDS:
+        return None
+    decoded = _LEET_WORD.sub(lambda m: m.group(0).translate(LEET_MAP), text)
+    if _english_word_score(decoded) - _english_word_score(text) < MIN_LEET_GAIN:
+        return None
+    return decoded
+
+
+#: A speaker label opening a turn of dialogue: ``User:``, ``Assistant:``.
+_TURN = re.compile(r"(?:^|[\n.!?]\s*|\s)(user|human|q|assistant|ai|a|bot|model)\s*:",
+                   re.IGNORECASE)
+_ASKER = {"user", "human", "q"}
+#: Fake turns, counting both speakers, before a single message reads as a
+#: many-shot attack. Anil et al. (2024) show the effect growing with the
+#: number of shots from a handful upward; 16 turns is 8 exchanges.
+MIN_MANY_SHOT_TURNS = 16
+
+
+def looks_many_shot(text: str) -> bool:
+    """Whether one message carries a long run of fake dialogue turns.
+
+    A flag, not a verdict: pasted chat logs and support transcripts look the
+    same, so this is recorded as a signal and never blocks by itself.
+    """
+    roles = [m.group(1).lower() for m in _TURN.finditer(text)]
+    if len(roles) < MIN_MANY_SHOT_TURNS:
+        return False
+    askers = sum(role in _ASKER for role in roles)
+    return askers >= MIN_MANY_SHOT_TURNS // 4 and len(roles) - askers >= MIN_MANY_SHOT_TURNS // 4
+
+
 def has_excessive_special_chars(text: str, threshold: float = 0.35) -> bool:
     """Flag adversarial-suffix style payloads (dense punctuation/symbols)."""
     if len(text) < 20:
@@ -759,6 +817,14 @@ def normalize(text: str) -> NormalizationResult:
     for flag in decode_flags:
         result.add_flag(flag)
     result.variants.extend(decoded_variants)
+
+    leet = decode_leetspeak(folded)
+    if leet and leet not in result.variants:
+        result.variants.append(leet)
+        result.add_flag(F.LEETSPEAK_DECODED)
+
+    if looks_many_shot(folded):
+        result.add_flag(F.MANY_SHOT_DIALOGUE)
 
     if has_excessive_special_chars(folded):
         result.add_flag(F.EXCESSIVE_SPECIAL_CHARACTERS)

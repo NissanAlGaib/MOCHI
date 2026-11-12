@@ -51,6 +51,13 @@ URL_REDACTION = "[link removed: possible data exfiltration]"
 #: Replaces disclosed protected text.
 LEAK_REDACTION = "[removed: disclosure of protected instructions]"
 
+#: Replaces a declared secret found in a response.
+SECRET_REDACTION = "[removed: protected secret]"
+
+#: Declared secrets shorter than this are ignored: a four-character secret
+#: would match ordinary words and numbers in every other response.
+MIN_SECRET_CHARS = 5
+
 _WORDS = re.compile(r"\w+")
 
 
@@ -132,8 +139,52 @@ def find_leaked_sentences(response: str, protected: list[str]) -> list[str]:
     return leaked
 
 
+def secret_patterns(secret: str) -> list[re.Pattern]:
+    """Every form of ``secret`` a response might carry it in.
+
+    The n-gram check above cannot see a short secret - a password is one word,
+    and the check needs eight - and a model asked to leak one is usually asked
+    to disguise it as well. So a declared secret is looked for:
+
+    - as written, ignoring case;
+    - spelled out with separators between its characters (``P-A-S-S``,
+      ``p a s s``, one character per line) and in reverse, both ways;
+    - base64- and hex-encoded.
+
+    Not caught: a translation, a riddle, a description of the secret, or a
+    cipher other than these. Paraphrase is out of reach of any string match,
+    which is why the module docstring calls disclosure detection verbatim-only.
+    """
+    import base64
+
+    if len(secret) < MIN_SECRET_CHARS:
+        return []
+    chars = [c for c in secret if c.isalnum()]
+    patterns = []
+    for sequence in (chars, chars[::-1]):
+        if len(sequence) >= MIN_SECRET_CHARS:
+            patterns.append(re.compile(r"[\W_]{0,3}".join(map(re.escape, sequence)),
+                                       re.IGNORECASE))
+    patterns.append(re.compile(re.escape(secret), re.IGNORECASE))
+    encoded = base64.b64encode(secret.encode()).decode().rstrip("=")
+    patterns.append(re.compile(re.escape(encoded) + "=*"))   # base64 is case-sensitive
+    patterns.append(re.compile(re.escape(secret.encode().hex()), re.IGNORECASE))
+    return patterns
+
+
+def redact_secrets(text: str, secrets: list[str]) -> tuple[str, int]:
+    """Remove every occurrence of every declared secret. Returns the count."""
+    removed = 0
+    for secret in secrets:
+        for pattern in secret_patterns(secret):
+            text, count = pattern.subn(SECRET_REDACTION, text)
+            removed += count
+    return text, removed
+
+
 def inspect_response(text: str, *, protected: list[str] | None = None,
-                     remove_click_urls: bool = True) -> tuple[str, OutboundResult]:
+                     remove_click_urls: bool = True,
+                     secrets: list[str] | None = None) -> tuple[str, OutboundResult]:
     """Scan and clean one response body.
 
     Args:
@@ -141,6 +192,10 @@ def inspect_response(text: str, *, protected: list[str] | None = None,
         remove_click_urls: Also strip medium-risk URLs that need a click. On by
             default; turning it off keeps only the auto-fetch cases, which is the
             narrower, higher-precision arm for the ablation.
+        secrets: Strings the operator declared secret - passwords, keys, internal
+            codes. Removed wherever they appear, disguised or not; see
+            :func:`secret_patterns`. Unlike ``protected``, these are not inferred
+            from the request: only the operator knows what is secret.
 
     Returns the cleaned text and what was done to it.
     """
@@ -175,6 +230,12 @@ def inspect_response(text: str, *, protected: list[str] | None = None,
             f"removed {result.leaked_spans} span(s) quoting protected instructions"
         )
 
+    if secrets:
+        cleaned, removed = redact_secrets(cleaned, secrets)
+        if removed:
+            result.leaked_spans += removed
+            result.findings.append(f"removed {removed} occurrence(s) of a declared secret")
+
     result.action = OutboundAction.REDACT if result.modified else OutboundAction.ALLOW
     return cleaned, result
 
@@ -200,7 +261,8 @@ def _clean_content(content: Any, **kwargs) -> tuple[Any, list[OutboundResult]]:
 
 
 def scan_completion(payload: Any, *, protected: list[str] | None = None,
-                    remove_click_urls: bool = True) -> OutboundResult:
+                    remove_click_urls: bool = True,
+                    secrets: list[str] | None = None) -> OutboundResult:
     """Inspect and clean an OpenAI chat-completion response, in place.
 
     Non-dict payloads and unexpected shapes pass through untouched rather than
@@ -212,7 +274,8 @@ def scan_completion(payload: Any, *, protected: list[str] | None = None,
     if not isinstance(payload, dict):
         return combined
 
-    kwargs = {"protected": protected, "remove_click_urls": remove_click_urls}
+    kwargs = {"protected": protected, "remove_click_urls": remove_click_urls,
+              "secrets": secrets}
     results: list[OutboundResult] = []
 
     for choice in payload.get("choices") or []:

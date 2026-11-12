@@ -98,6 +98,11 @@ class Settings:
     outbound_remove_click_urls: bool
     allow_buffered_streaming: bool
 
+    protected_secrets_file: str = ""
+    """File of strings the operator declares secret, one per line (passwords,
+    keys, internal codes). Removed from every response wherever they appear,
+    spelled out, reversed or encoded. See ``mochi.mitigate.outbound``."""
+
     unreadable_attachments: str = "auto"
     """An attachment MOCHI could not read: ``block``, ``strip``, ``allow``, or
     ``auto`` - strip when converting, block when inspecting. See
@@ -222,6 +227,7 @@ def get_settings() -> Settings:
         # docs/BUILD_PLAN.md Phase 11.
         allow_buffered_streaming=_get_bool("MOCHI_ALLOW_BUFFERED_STREAMING", False),
         unreadable_attachments=_get_policy(),
+        protected_secrets_file=os.getenv("MOCHI_PROTECTED_SECRETS_FILE", "").strip(),
         anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", "").strip(),
         anthropic_base_url=os.getenv(
             "ANTHROPIC_BASE_URL", "https://api.anthropic.com").strip().rstrip("/"),

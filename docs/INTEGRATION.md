@@ -105,6 +105,7 @@ message roles.
 | `forward_mode` | `"inspect"` | `"convert"` replaces attachments with their text |
 | `unreadable_attachments` | `"auto"` | an attachment that could not be read: `"block"`, `"strip"`, `"allow"`; auto blocks when inspecting, strips when converting |
 | `enable_outbound` | `True` | inspect responses as well as requests |
+| `protected_secrets` | `None` | strings never to appear in a response, removed even when spelled out, reversed or encoded; the proxy's equivalent is `MOCHI_PROTECTED_SECRETS_FILE` |
 | `allow_buffered_streaming` | `False` | see below |
 | `on_verdict` | `None` | callback after every call, including blocked ones |
 

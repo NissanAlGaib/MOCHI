@@ -582,6 +582,42 @@ Remote attachments (URLs, file ids) are flagged `attachment_remote` and never
 fetched (SSRF), so they stay uninspected. None of the attack corpora use code
 files or executables, so no reported figure moves.
 
+**4.17 Rule-based fixes for the top literature gaps - DONE 2026-11-12, no
+retraining.** See `docs/ATTACK_LANDSCAPE.md` §6.
+
+What was added:
+- Stage I patterns: forged delimiters and chat-template tokens, the generic
+  fake completion, and vague extraction phrasings.
+- A leetspeak reading in normalization.
+- A `many_shot_dialogue` flag, signal only.
+- An optional declared-secrets outbound check (`MOCHI_PROTECTED_SECRETS_FILE`
+  / `protected_secrets=`), off in every eval run.
+- Two old false positives fixed: "What are your instructions for resetting
+  my PIN?" and a bare `<system>` XML tag.
+
+How the numbers were re-measured:
+- Only items whose text a fix touches were re-run. No benign item in any set
+  was touched, so every FPR is unchanged by construction.
+- Before/after on external held-out sets, run before any tuning:
+  `eval/heldout_attacks.py`.
+
+Results:
+
+| Measurement | Before | After |
+|---|---|---|
+| Generated FNR | 35.0% | 33.0% (T1-15 and T3-15 now blocked) |
+| Gandalf detection FNR | 14.7% | 14.0% |
+| Concealed images FNR | 24.6% | 19.7% |
+| Bit-plane FNR | 19.7% | 16.4% |
+| Held-out: Tensor Trust hijacking | 74.0% | 74.1% |
+| Held-out: Tensor Trust extraction | 67.4% | 67.7% |
+| Held-out: Liu fake completion | 70.0% | 70.0% |
+| Held-out: leetspeak | 4.2% | 100% |
+
+**Honest reading:** rules close specific shapes. Paraphrased extraction and
+task-specific fake answers remain Stage II's job, and they are where the
+remaining misses are. Pre-fix rows are kept as `reports/*_PRE_FIXES.jsonl`.
+
 ### Housekeeping
 
 **4.10 Telemetry `source_origin` - FIXED.** It recorded the highest-scoring

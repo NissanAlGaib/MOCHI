@@ -112,6 +112,7 @@ class _Config:
     enable_outbound: bool = True
     outbound_remove_click_urls: bool = True
     allow_buffered_streaming: bool = False
+    protected_secrets: list[str] | None = None
     on_verdict: Callable[[GuardedCall], None] | None = None
 
 
@@ -383,6 +384,7 @@ def _guard_native_response(response: Any, call: GuardedCall, fmt_name: str,
         pseudo,
         protected=protected_text(call.inspection.segments),
         remove_click_urls=config.outbound_remove_click_urls,
+        secrets=config.protected_secrets,
     )
     call.outbound_modified = outbound.modified
     call.outbound_findings = list(outbound.findings)
@@ -419,6 +421,7 @@ def _guard_response(response: Any, call: GuardedCall, config: _Config) -> Any:
         payload,
         protected=protected_text(call.inspection.segments),
         remove_click_urls=config.outbound_remove_click_urls,
+        secrets=config.protected_secrets,
     )
     call.outbound_modified = outbound.modified
     call.outbound_findings = list(outbound.findings)
@@ -594,6 +597,10 @@ def guard(client: Any, **settings: Any) -> Any:
             import.
         enable_outbound: Inspect responses as well as requests.
         allow_buffered_streaming: Accept ``stream=True`` by buffering.
+        protected_secrets: Strings that must never appear in a response -
+            passwords, keys, internal codes. Removed wherever they occur,
+            spelled out, reversed or base64/hex-encoded. The proxy's
+            equivalent is ``MOCHI_PROTECTED_SECRETS_FILE``.
         on_verdict: Called with the :class:`GuardedCall` after every call,
             including a blocked one. For logging without wrapping again.
 
