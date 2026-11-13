@@ -209,7 +209,10 @@ GEMINI_API_KEY=your-key
 MOCHI_SYSTEM_PROMPT_FILE=system_prompt.txt
 ```
 
-For Ollama, `OPENAI_API_KEY` can be any text. `TARGET_LLM_MODEL` is used when
+For Ollama, `OPENAI_API_KEY` can be any text. `OPENAI_BASE_URL` is where
+MOCHI forwards to, so it is Ollama's address (port 11434 by default), not
+MOCHI's own port 8000; pointing it at 8000 would send MOCHI's requests back to
+itself. `TARGET_LLM_MODEL` is used when
 your app doesn't name a model, or uses a different provider's SDK than the one
 MOCHI forwards to. Every other setting is listed in
 [.env.example](../.env.example).
