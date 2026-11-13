@@ -162,6 +162,15 @@ The CPU-PyTorch tip from the wrapper's step 1 applies here too.
 
 ### 2. Create two files in that folder
 
+Put both next to `.venv`, not inside it:
+
+```
+mochi-proxy\
+├── .venv\
+├── .env
+└── system_prompt.txt
+```
+
 **`system_prompt.txt`**: your app's system prompt, exactly as the app sends it.
 
 **`.env`**: which model MOCHI forwards to, and its key. Use the block for your
@@ -241,7 +250,8 @@ Invoke-RestMethod http://127.0.0.1:8000/v1/chat/completions -Method Post -Conten
 
 The health check returns `status: ok` and your provider. The attack fails with
 **403** and `Request blocked by MOCHI: direct_injection detected in
-user_input`. On macOS or Linux, `curl http://127.0.0.1:8000/health` does the
+user_input`. PowerShell prints any 403 as a red error, so red text that
+includes that message means the check passed. On macOS or Linux, `curl http://127.0.0.1:8000/health` does the
 same as the first line.
 
 ### 5. Point your app at the proxy
