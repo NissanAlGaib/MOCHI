@@ -246,8 +246,13 @@ delivery and both surfaces say so rather than letting a caller discover it.
 ## What neither surface does
 
 - **Inspect what the model is asked to *do*.** MOCHI reads text in and text
-  out. An agent that calls tools between those points is outside what this
-  measures.
+  out. A tool call the model makes - `transfer_funds(from_account="1002")` -
+  is not judged: whether it is allowed depends on who is logged in, which
+  only the application knows. Put an authorization check in each tool; MOCHI
+  lowers the odds an injection reaches the model and does not replace it.
+  What MOCHI does use is the request's tool list: untrusted content that
+  tells the model to run one of those tools is blocked. The Acme Bank demo's
+  banking-tools page shows both halves.
 - **Catch a short secret quoted back.** Outbound leak detection matches on
   eight-word n-grams, so a four-word credential repeated by the model is below
   the floor. See Limitations 4.8.

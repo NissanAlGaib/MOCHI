@@ -253,6 +253,8 @@ def inspect(request, record: TelemetryRecord, *,
     # --- Stage I: syntactic filtering ---
     if enable_stage1:
         detector = get_detector()
+        offered = getattr(request, "offered_tools", None)
+        tools = tuple(offered()) if callable(offered) else ()
         with stage_timer(record.latency, "stage_1"):
             result.stage1 = [
                 (
@@ -261,6 +263,8 @@ def inspect(request, record: TelemetryRecord, *,
                         segment.scannable,
                         segment.normalized.flags,
                         block_severity=block_severity,
+                        untrusted=segment.is_untrusted,
+                        tool_names=tools,
                     ),
                 )
                 for segment in segments

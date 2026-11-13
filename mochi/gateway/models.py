@@ -29,7 +29,7 @@ SOURCE_TAGS = (
 
 # MOCHI-specific fields that must be stripped before forwarding upstream -
 # the target provider's API would reject them as unknown parameters.
-MOCHI_ONLY_FIELDS = frozenset({"session_id", "context"})
+MOCHI_ONLY_FIELDS = frozenset({"session_id", "context", "tool_names"})
 
 
 class Message(BaseModel):
@@ -91,6 +91,20 @@ class ChatCompletionRequest(BaseModel):
     # --- MOCHI extensions (stripped before upstream dispatch) ---
     session_id: str | None = None
     context: TaggedContext | None = None
+    tool_names: list[str] | None = None
+    """Names of the tools this request offers the model, whatever SDK shape
+    they arrived in. Filled by MOCHI from the request's own tool list, never
+    sent upstream. Untrusted content naming one of them is a Stage I signal."""
+
+    def offered_tools(self) -> list[str]:
+        """Tool names for inspection: the explicit field, else this request's
+        own OpenAI-shaped ``tools``, which a chat-completions body carries as an
+        extra field."""
+        from mochi.detect.tools import tool_names
+
+        if self.tool_names is not None:
+            return list(self.tool_names)
+        return tool_names(getattr(self, "tools", None))
 
     def upstream_payload(self, default_model: str) -> dict[str, Any]:
         """Serialize for the target LLM, dropping MOCHI-only fields."""

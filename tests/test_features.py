@@ -45,7 +45,11 @@ def test_detector_ids_match_the_pattern_file():
     the dataset silently loses a column and two runs stop being comparable.
     """
     spec = json.loads(PATTERNS_PATH.read_text(encoding="utf-8"))
-    assert set(DETECTOR_IDS) == {d["id"] for d in spec["detectors"]}
+    # Detectors scoped to untrusted content are left out: features are built
+    # from text with no trust context, where they can never fire, so their
+    # column would be all zeros and would only shift the others.
+    assert set(DETECTOR_IDS) == {d["id"] for d in spec["detectors"]
+                                 if d.get("scope", "all") == "all"}
 
 
 def test_feature_names_are_unique_and_flat():

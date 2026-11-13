@@ -393,6 +393,25 @@ walkthrough.
 
   A deployment that hands attachments to a code-execution tool should put a
   malware scanner in front of that tool. MOCHI does not replace one.
+- **The tool calls a model makes are not checked.** MOCHI inspects the text
+  going into the model and the text coming back. When the model answers by
+  calling a tool - `transfer_funds(from_account="1002", ...)` - nothing in
+  MOCHI judges whether that action is allowed. Not implemented, deliberately:
+  - there is no injection text in a tool call to detect. Whether moving money
+    out of account 1002 is theft depends on who is logged in and what they
+    own, which only the application knows;
+  - supplying that knowledge would mean a policy for every tool on every
+    deployment - a callback for the wrapper, and for the proxy a rules file
+    plus a header naming the user - which turns a two-line setup into a
+    security configuration;
+  - and the check it would make belongs in the tool anyway. An ownership
+    check inside `transfer_funds` stops the transfer even when an injection
+    gets past MOCHI; a check in MOCHI does not survive MOCHI being bypassed.
+
+  So for a tool-using application, MOCHI lowers the odds that an injection
+  reaches the model, and the tools must still check authorization themselves.
+  MOCHI does read the tool *list*: untrusted content that tells the model to
+  run one of those tools is blocked (see `docs/STATE_AND_TODO.md` 4.18).
 - **Remote attachments are never fetched.** An image URL or an uploaded-file
   id is flagged (`attachment_remote`) and forwarded. Fetching it would let
   any caller make MOCHI request a host of their choosing, and refusing would

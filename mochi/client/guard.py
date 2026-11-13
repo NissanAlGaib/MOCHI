@@ -43,6 +43,7 @@ from typing import Any, Callable
 
 from mochi.detect import inspect as inspect_request
 from mochi.detect.pipeline import InspectionResult
+from mochi.detect.tools import request_tools, tool_names
 from mochi.gateway.models import ChatCompletionRequest
 from mochi.mitigate import Decision, Verdict, apply, decide
 from mochi.mitigate.outbound import OutboundResult, protected_text, scan_completion
@@ -154,6 +155,9 @@ def _build_request(kwargs: dict[str, Any], config: _Config) -> ChatCompletionReq
         payload["context"] = config.context
     if kwargs.get("session_id"):
         payload["session_id"] = kwargs["session_id"]
+    names = tool_names(request_tools(kwargs))
+    if names:
+        payload["tool_names"] = names
     return ChatCompletionRequest.model_validate(payload)
 
 
@@ -353,8 +357,10 @@ def _guard_native(kwargs: dict[str, Any], fmt_name: str, config: _Config,
     if config.system_prompt:
         fmt.ensure_system(body, config.system_prompt)
     view = fmt.to_chat(body)
-    request = _build_request({"model": fmt.model(body), "messages": view.messages},
-                             config)
+    # Tools are read from the caller's own arguments: they are not content, so
+    # ``body`` (which carries only what may be rewritten) leaves them out.
+    request = _build_request({"model": fmt.model(body), "messages": view.messages,
+                              "tools": request_tools(kwargs)}, config)
     call = _enforce(request, config, owner)
     view.write_back(request.messages)
     for key in CONTENT_ARGUMENTS[fmt_name]:

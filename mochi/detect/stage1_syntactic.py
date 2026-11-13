@@ -180,6 +180,36 @@ class _CompiledPattern:
     severity: str
     source: str
     regex: re.Pattern[str]
+    untrusted_only: bool = False
+    """Applies only to untrusted segments (documents, web pages, tool output).
+    For phrasing that is ordinary from a person and suspect from data: a
+    customer may write "don't tell my wife", but a retrieved article that
+    says "do not tell the customer" is addressing the model."""
+
+
+#: Detector id for untrusted content that names one of the request's tools.
+TOOL_RULE_ID = "tool_instruction_in_data"
+
+#: Verbs that turn a tool name into an instruction to run it. "with" and
+#: "via" cover "do it with transfer_funds"; the call-syntax form covers
+#: ``transfer_funds(...)``. A bare mention ("transfer_funds failed") is not
+#: enough: a tool's own error message can name the tool.
+_TOOL_VERBS = (r"call|calling|calls|use|using|uses|invoke|invoking|run|running|"
+               r"execute|executing|trigger|triggering|with|via")
+
+
+@lru_cache(maxsize=256)
+def _tool_pattern(names: tuple[str, ...]) -> re.Pattern[str] | None:
+    """One pattern for every tool this request offers. Cached per tool set,
+    since an application sends the same tools on every call."""
+    if not names:
+        return None
+    alternatives = "|".join(re.escape(name) for name in sorted(names, key=len, reverse=True))
+    return re.compile(
+        rf"\b(?:{_TOOL_VERBS})\s+(?:the\s+)?(?:tool\s+|function\s+)?[`'\"]?(?:{alternatives})\b"
+        rf"|\b(?:{alternatives})\s*\(",
+        re.IGNORECASE,
+    )
 
 
 @dataclass(frozen=True)
@@ -215,6 +245,9 @@ class Stage1Detector:
             detector_id = detector["id"]
             attack_type = detector.get("attack_type", detector_id)
             kind = detector.get("type", "regex")
+            scope = detector.get("scope", "all")
+            if scope not in ("all", "untrusted"):
+                raise PatternError(f"Unknown scope {scope!r} in {detector_id}")
 
             if kind == "regex":
                 for entry in detector.get("patterns", []):
@@ -232,6 +265,7 @@ class Stage1Detector:
                             severity=entry.get("severity", "medium"),
                             source=entry["regex"],
                             regex=compiled,
+                            untrusted_only=scope == "untrusted",
                         )
                     )
             elif kind == "normalization_flag":
@@ -262,10 +296,13 @@ class Stage1Detector:
 
     # --- scanning ---
 
-    def _scan_window(self, text: str) -> dict[str, Detection]:
+    def _scan_window(self, text: str, *, untrusted: bool = False,
+                     tools: re.Pattern[str] | None = None) -> dict[str, Detection]:
         """Match every pattern against one window, most severe hit per detector."""
         best: dict[str, Detection] = {}
         for pattern in self._patterns:
+            if pattern.untrusted_only and not untrusted:
+                continue
             match = pattern.regex.search(text)
             if match is None:
                 continue
@@ -279,9 +316,21 @@ class Stage1Detector:
             existing = best.get(pattern.detector_id)
             if existing is None or detection.rank > existing.rank:
                 best[pattern.detector_id] = detection
+        if untrusted and tools is not None:
+            match = tools.search(text)
+            if match is not None:
+                best[TOOL_RULE_ID] = Detection(
+                    detector_id=TOOL_RULE_ID,
+                    attack_type="indirect_injection",
+                    severity="high",
+                    evidence="untrusted content names a tool the request offers",
+                    matched_text=match.group(0)[:120],
+                )
         return best
 
-    def scan_text(self, text: str) -> tuple[list[Detection], ScanCoverage]:
+    def scan_text(self, text: str, *, untrusted: bool = False,
+                  tools: re.Pattern[str] | None = None,
+                  ) -> tuple[list[Detection], ScanCoverage]:
         """Match every pattern against one text, in overlapping windows.
 
         Returns at most one detection per detector, keeping the most severe -
@@ -309,7 +358,8 @@ class Stage1Detector:
 
         best: dict[str, Detection] = {}
         for chunk in chunks:
-            for detector_id, detection in self._scan_window(chunk.text).items():
+            found = self._scan_window(chunk.text, untrusted=untrusted, tools=tools)
+            for detector_id, detection in found.items():
                 existing = best.get(detector_id)
                 if existing is None or detection.rank > existing.rank:
                     best[detector_id] = detection
@@ -341,18 +391,26 @@ class Stage1Detector:
         return list(best.values())
 
     def scan(self, texts: Sequence[str], flags: Iterable[str] = (),
-             *, block_severity: str = DEFAULT_BLOCK_SEVERITY) -> Stage1Result:
+             *, block_severity: str = DEFAULT_BLOCK_SEVERITY,
+             untrusted: bool = False,
+             tool_names: Sequence[str] = ()) -> Stage1Result:
         """Scan every text variant plus the normalization flags.
 
         ``texts`` is a segment's ``scannable`` list: the normalized original
         plus any decoded payloads recovered in Phase 3.
+
+        ``untrusted`` turns on the rules scoped to untrusted content, and with
+        ``tool_names`` the rule that untrusted content must not tell the model
+        to run one of the request's tools. Both default off, so a caller that
+        knows nothing of trust gets exactly the rules it always got.
         """
         best: dict[str, Detection] = {}
         chars = windows = 0
         truncated = False
+        tools = _tool_pattern(tuple(tool_names)) if untrusted else None
 
         for text in texts:
-            detections, coverage = self.scan_text(text)
+            detections, coverage = self.scan_text(text, untrusted=untrusted, tools=tools)
             chars += coverage.chars
             windows += coverage.windows
             truncated = truncated or coverage.truncated

@@ -30,6 +30,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from mochi import __version__
 from mochi.detect import InspectionResult, inspect
+from mochi.detect.tools import request_tools, tool_names
 from mochi.gateway.adapters import UpstreamError, get_adapter
 from mochi.gateway.config import get_settings
 from mochi.gateway.models import ChatCompletionRequest
@@ -519,7 +520,8 @@ async def _serve(request: Request, fmt_name: str, *,
         view = fmt.to_chat(body)
         parsed = ChatCompletionRequest.model_validate({
             "model": path_model or fmt.model(body), "messages": view.messages,
-            "session_id": session_id, "context": context})
+            "session_id": session_id, "context": context,
+            "tool_names": tool_names(request_tools(body))})
     except Exception as exc:  # noqa: BLE001 - FormatError, ValidationError, bad shapes
         return fail(422 if not isinstance(exc, FormatError) else 400,
                     f"Invalid {fmt_name} request: {exc}")

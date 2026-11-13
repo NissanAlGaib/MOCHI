@@ -18,13 +18,14 @@
       "description": "Explicit attempts to override or discard prior instructions.",
       "patterns": [
         {
-          "regex": "\\bignore\\s+(?:all\\s+)?(?:the\\s+)?(?:previous|prior|above|earlier|preceding|foregoing)\\s+(?:instruction|direction|command|prompt|rule|guideline)",
+          "regex": "\\bignore\\s+(?:(?:all|any|every|each)\\s+(?:of\\s+)?)?(?:the\\s+|your\\s+|these\\s+|those\\s+)?(?:previous|prior|above|earlier|preceding|foregoing)\\s+(?:instruction|direction|command|prompt|rule|guideline)",
           "severity": "high",
-          "note": "Table 8: \\bignore\\s+previous\\b, tightened to require an object noun"
+          "note": "Table 8: \\bignore\\s+previous\\b, tightened to require an object noun. 'your', 'these', 'those' and 'all of' added 2026-11-13: 'Ignore your previous instructions' got past every rule. 'my' is left out on purpose - a customer correcting themselves says it."
         },
         {
-          "regex": "\\bdisregard\\s+(?:all\\s+)?(?:the\\s+)?(?:previous|prior|above|earlier|preceding)\\s+(?:instruction|direction|directive|command|prompt|rule|guideline)",
-          "severity": "high"
+          "regex": "\\bdisregard\\s+(?:(?:all|any|every|each)\\s+(?:of\\s+)?)?(?:the\\s+|your\\s+|these\\s+|those\\s+)?(?:previous|prior|above|earlier|preceding)\\s+(?:instruction|direction|directive|command|prompt|rule|guideline)",
+          "severity": "high",
+          "note": "Determiners widened 2026-11-13, as for 'ignore'."
         },
         {
           "regex": "\\bforget\\s+(?:everything|all|your|the)\\b[^.!?\\n]{0,40}?\\b(?:instruction|rule|direction|directive|guideline|training|prompt)s?\\b",
@@ -172,6 +173,27 @@
           "regex": "\\b(?:there\\s+(?:was|has\\s+been|seems\\s+to\\s+(?:have\\s+been|be))\\s+(?:some\\s+)?(?:confusion|a\\s+mistake|an\\s+error|a\\s+misunderstanding)\\s+in\\s+(?:the|my|your|our)\\s+(?:earlier|previous|prior|above|last)\\s+(?:message|instructions?|prompt))",
           "severity": "medium",
           "note": "Tensor Trust 'end ambiguity' strategy: claims the earlier instructions were wrong. Medium - a real user can say this."
+        }
+      ]
+    },
+    {
+      "id": "concealed_instruction",
+      "attack_type": "indirect_injection",
+      "type": "regex",
+      "scope": "untrusted",
+      "description": "Data that tells the reader to keep something from the person being served. Applies to untrusted content only (documents, web pages, tool output): from a customer 'don't tell my wife' is ordinary; from a fetched article or a transfer memo, 'do not tell the customer' is addressed to the model. Added 2026-11-13 after two banking-tool memos written this way reached the model untouched.",
+      "patterns": [
+        {
+          "regex": "\\b(?:do\\s+not|don'?t|never|without)\\s+(?:tell(?:ing)?|mention(?:ing)?|inform(?:ing)?|notify(?:ing)?|alert(?:ing)?|warn(?:ing)?|ask(?:ing)?|consult(?:ing)?|confirm(?:ing)?\\s+with)\\b[^.!?\\n]{0,40}?\\b(?:the|this|your)\\s+(?:customer|user|client|account\\s+holder|requester)s?\\b(?!['’]s|\\s+(?:service|support|care|centre|center|team|desk|interface|experience|manual|guide|agreement|id|name|account|portal|base|data|record))",
+          "severity": "high"
+        },
+        {
+          "regex": "\\bno\\s+need\\s+to\\s+(?:ask|tell|inform|notify|check\\s+with|confirm\\s+with)\\s+(?:me|them|the\\s+(?:customer|user|client|account\\s+holder))\\b",
+          "severity": "high"
+        },
+        {
+          "regex": "\\bwithout\\s+(?:the\\s+)?(?:customer|user|client|account\\s+holder)(?:'s)?\\s+(?:knowing|knowledge|noticing|consent|approval|confirmation)\\b",
+          "severity": "high"
         }
       ]
     },

@@ -387,7 +387,11 @@ does not cover.
 - **Measured.**
   - Generated corpus, `direct_injection`: 2 of 17 missed (11.8%).
   - Gandalf detection set: 14.7% missed of 1,000.
-- **Gap.** None specific to this family.
+- **Gap, fixed 2026-11-13.** "Ignore *your* previous instructions" matched no
+  pattern (they expected "all" or "the"), and inside a longer request Stage II
+  scored it below threshold: in the banking-tools demo it moved PHP 200,000.
+  "your", "these", "those" and "all of" now match; "my" is left out, because a
+  customer correcting themselves says it.
 
 ### 6.2 System-prompt extraction: **Partly addressed**
 
@@ -452,6 +456,16 @@ does not cover.
 - **Gap.** Most generated-corpus misses are "output this code word" canaries
   placed in documents. That phrasing is ordinary until it sits inside a
   document, and it was left unfixed on purpose (Limitations 4.15).
+- **Fixed 2026-11-13, for tool-using agents** (`docs/STATE_AND_TODO.md` 4.18).
+  - Untrusted content that tells the model to run one of the request's tools,
+    or to keep something from the customer, is blocked.
+  - A cut now also takes the order after a flagged sentence and a JSON value
+    whole, so a memo's transfer instruction does not survive its trigger.
+  - Generated corpus FNR 33.0% → 31.0% (T2-16, T2-19 now caught).
+- **Not addressed: the action itself.** A tool call the model makes is not
+  judged, because whether it is allowed depends on who is logged in (4.19).
+  This is OWASP's *Excessive Agency* (LLM06:2025), and its defence is
+  authorization in the tool.
 
 ### 6.5 Fake completion, delimiters and special tokens: **Partly addressed**
 
@@ -634,6 +648,12 @@ By the evidence in §3–§4, most consequential first. Updated after the
    alone.
 6. **Adversarial media perturbations and non-spatial steganography**
    (6.12–6.13): research stage, rarest in practice.
+
+Outside this ranking, because it is a consequence rather than a technique:
+**an agent's actions** (6.4). An injection that gets past MOCHI into a
+tool-using model can move money or read other customers' records, and MOCHI
+does not judge the tool calls that follow. That defence is authorization in
+the tools.
 
 **What the fixes did and did not achieve:**
 - **Leetspeak:** closed, 4.2% → 100% on held-out attacks.
