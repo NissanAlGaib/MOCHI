@@ -172,6 +172,8 @@ mochi-proxy\
 ```
 
 **`system_prompt.txt`**: your app's system prompt, exactly as the app sends it.
+Copy it, don't move it: your app still sends its own copy, and MOCHI uses
+this one to recognise it.
 
 **`.env`**: which model MOCHI forwards to, and its key. Use the block for your
 provider:
