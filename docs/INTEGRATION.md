@@ -4,6 +4,9 @@ This answers the question raised in review: *how is the prompt sent to MOCHI,
 and how does MOCHI send it to an LLM?* — and the follow-up, *what if we append
 a MOCHI function to an LLM's send-request function?*
 
+It explains the two ways of attaching MOCHI and when to choose which. For
+step-by-step setup instructions, see [SETUP.md](SETUP.md).
+
 ## The mechanism, plainly
 
 When an application calls `client.chat.completions.create(...)`, that function

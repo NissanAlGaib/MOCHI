@@ -12,10 +12,17 @@ import os
 from dataclasses import dataclass
 from functools import lru_cache
 
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
 
 from mochi.session import DEFAULT_THRESHOLD, DEFAULT_WINDOW
 
+# The .env in the folder the gateway is started from comes first, because that
+# is where a user puts it. python-dotenv's default searches upward from *this
+# file* instead - inside site-packages for an installed copy - so an installed
+# `mochi-gateway` used to ignore the user's .env entirely and start with every
+# default. The default search still runs second, so a clone's own .env fills
+# in whatever the first left unset. Real environment variables beat both.
+load_dotenv(find_dotenv(usecwd=True))
 load_dotenv()
 
 

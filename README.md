@@ -27,7 +27,7 @@ Hans Adrian A. Lao, Jelaine May C. Macias, Rosepel M. Maglangit.
 | 9 | Stage III — cognitive arbitration | ⬛ Omitted by design (register Q7) |
 | 10 | Enforcement & sanitization | ✅ Done |
 | 11 | Outbound interception | ✅ Done |
-| 12 | Multi-provider adapters | ⬜ |
+| 12 | Multi-provider adapters | ✅ Done — OpenAI, Anthropic, Gemini, OpenAI Responses |
 | 13 | Full evaluation | ⬜ |
 | 14 | Packaging | ✅ `pip install` works; weights download on first start |
 
@@ -36,19 +36,72 @@ See [docs/BUILD_PLAN.md](docs/BUILD_PLAN.md) for what each phase entails and
 
 ## Quick start
 
-### 1. Install
+**Step-by-step setup, with the output to expect at each step and a
+troubleshooting table: [docs/SETUP.md](docs/SETUP.md).** The short version
+follows.
+
+MOCHI attaches in one of two ways:
+
+- **Wrapper:** for a Python app. Wrap the LLM client in one line; nothing to
+  run.
+- **Proxy:** for an app in any language. Run `mochi-gateway`, and point the
+  app's client at it instead of at the provider.
+
+Both run the same checks and reach the same verdict;
+[docs/INTEGRATION.md](docs/INTEGRATION.md) explains when to choose which.
+
+### Wrapper
 
 ```bash
 pip install "mochi-guard @ git+https://github.com/NissanAlGaib/MOCHI.git"
-pip install "mochi-guard[all] @ git+https://github.com/NissanAlGaib/MOCHI.git"   # + images, PDFs, audio
 ```
 
+```python
+from openai import OpenAI
+from mochi.client import guard, MochiBlocked
+
+client = guard(OpenAI(), system_prompt=SYSTEM_PROMPT)   # or Anthropic(), genai.Client()
+
+try:
+    reply = client.chat.completions.create(model="gpt-4o-mini", messages=messages)
+except MochiBlocked:
+    ...                                                  # show the user a refusal
+```
+
+### Proxy
+
+In a new folder, install MOCHI the same way, then create two files:
+`system_prompt.txt`, holding your app's system prompt, and `.env`:
+
+```ini
+# openai, anthropic or gemini (for Ollama, see docs/SETUP.md)
+TARGET_LLM_PROVIDER=openai
+TARGET_LLM_MODEL=gpt-4o-mini
+# MOCHI holds the key, not the app
+OPENAI_API_KEY=sk-...
+MOCHI_SYSTEM_PROMPT_FILE=system_prompt.txt
+```
+
+Start it from that folder with `mochi-gateway` (it listens on
+`http://127.0.0.1:8000`), then change only the address in the app:
+
+| App uses | Point it at |
+|---|---|
+| OpenAI SDK, or plain HTTP in any language | `http://127.0.0.1:8000/v1` |
+| Anthropic SDK | `http://127.0.0.1:8000` |
+| Google Gen AI SDK | `http://127.0.0.1:8000` (in `http_options`) |
+
+A refused request is an HTTP 403, which each SDK raises as its usual error.
+
+### Install name
+
 The install name is `mochi-guard`; the import name is `mochi`. (`mochi` is
-taken on PyPI by an unrelated project.) Stage II and torch come with it,
+taken on PyPI by an unrelated project.) Add `[all]` (`"mochi-guard[all] @
+git+..."`) to read images, PDFs and audio. Stage II and torch come with it,
 because MOCHI without Stage II detects almost nothing (Stage I alone:
 recall 0.059).
 
-### 2. Model weights: nothing to do
+### Model weights: nothing to do
 
 Stage II's trained weights (468 MB) are not inside the package; MOCHI
 downloads them from Hugging Face,
@@ -68,47 +121,11 @@ For a machine without internet access, copy the folder over and point
 `MOCHI_STAGE2_MODEL_DIR` at it. Without weights, MOCHI refuses to start rather
 than quietly running Stage I alone.
 
-### 3. Attach it: in-process, or as a proxy
+### Other SDKs
 
-**In-process wrapper:** two lines in a Python app.
-
-```python
-from openai import OpenAI
-from mochi.client import guard
-
-client = guard(OpenAI(api_key="sk-..."), system_prompt=SYSTEM_PROMPT)
-```
-
-**Proxy:** any language. Start it, then change one line in the app.
-
-```bash
-export OPENAI_API_KEY=sk-...                         # MOCHI holds the key, not the app
-export MOCHI_SYSTEM_PROMPT_FILE=system_prompt.txt
-mochi-gateway                                        # listens on http://127.0.0.1:8000
-```
-
-```python
-client = OpenAI(api_key="unused", base_url="http://127.0.0.1:8000/v1")
-```
-
-**Other SDKs.** Both surfaces work with the Anthropic and Google Gen AI SDKs
-and with OpenAI's Responses API, not only chat completions:
-
-| SDK | `guard()` wraps | Proxy: change only |
-|---|---|---|
-| OpenAI | `chat.completions.create`, `responses.create` | `OpenAI(base_url="http://127.0.0.1:8000/v1")` |
-| Anthropic | `messages.create` | `Anthropic(base_url="http://127.0.0.1:8000")` |
-| Google Gen AI | `models.generate_content` (and `aio`) | `genai.Client(http_options={"base_url": "http://127.0.0.1:8000"})` |
-
-```python
-from anthropic import Anthropic
-client = guard(Anthropic(), system_prompt=SYSTEM_PROMPT)
-
-from google import genai
-client = guard(genai.Client(), system_prompt=SYSTEM_PROMPT)
-```
-
-Every request is read into the same chat messages before inspection, so the
+Both ways work with the OpenAI SDK (chat completions and the Responses API),
+the Anthropic SDK and the Google Gen AI SDK. Every request is read into the
+same chat messages before inspection, so the
 verdict does not depend on the SDK: a tool result is untrusted and redacted
 whether it arrived as an OpenAI `tool` message, an Anthropic `tool_result`
 block or a Gemini `functionResponse`. Redactions are written back in the
@@ -261,22 +278,9 @@ on the host reproduce in the image.
 
 ## Using it
 
-MOCHI speaks the OpenAI chat-completions API, so integration is a one-line
-change in the client application — no code restructuring, no SDK to adopt:
-
-```python
-from openai import OpenAI
-
-client = OpenAI(
-    base_url="http://127.0.0.1:8000/v1",   # <- the only change
-    api_key="unused",                       # MOCHI holds the real key server-side
-)
-
-response = client.chat.completions.create(
-    model="gpt-4o-mini",
-    messages=[{"role": "user", "content": "Summarize this document."}],
-)
-```
+Setting MOCHI up is covered in [docs/SETUP.md](docs/SETUP.md). The one thing
+worth doing in the app itself is keeping fetched content out of the user's
+message, as below.
 
 ### Optional: source tagging
 
@@ -352,7 +356,7 @@ definitions.
 ## Tests
 
 ```bash
-python -m pytest                 # 138 tests
+python -m pytest                 # about 1,100 tests
 python demo/evasion_demo.py      # obfuscation-resistance demonstration
 ```
 
