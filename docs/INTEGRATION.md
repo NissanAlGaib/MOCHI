@@ -102,7 +102,7 @@ message roles.
 | `system_prompt` | `None` | declared and exempt; prepended when the caller supplies none |
 | `context` | `None` | tagged origins, fixed per client; see above |
 | `enable_stage2` | `True` | off also avoids importing torch |
-| `stage2_model_dir` | `None` | a folder, or `hf:owner/name@revision`; see the README |
+| `stage2_model_dir` | `None` | a folder, or `hf:owner/name@revision`; see the README's *Good to know* |
 | `stage2_device` | `"cpu"` | |
 | `read_attachments` | `False` | Read attachments: OCR for images, transcription for audio and video, text from PDFs and other documents |
 | `forward_mode` | `"inspect"` | `"convert"` replaces attachments with their text |

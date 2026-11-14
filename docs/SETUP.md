@@ -304,7 +304,7 @@ firewall rule.
 machine can reach MOCHI. To serve apps elsewhere, add `MOCHI_HOST=0.0.0.0` to
 MOCHI's `.env`, and point the apps at that machine's address instead of
 `127.0.0.1`. `MOCHI_PORT` changes the port from 8000. A Docker setup is
-described in the [README](../README.md#or-with-docker).
+described in [DOCKER.md](DOCKER.md).
 
 ### Optional proxy settings
 
@@ -349,4 +349,4 @@ system prompt you declared, and checks anything else like user text.
 | 401 or "invalid API key" | The provider rejected MOCHI's key. Check the key in MOCHI's `.env`, not in your app. |
 | 501 "Streaming is not supported" | Your app uses `stream=True`. Turn on buffered streaming (see the optional settings), or stop streaming. |
 | `[removed: disclosure of protected instructions]` in a reply | The model repeated 8 or more words in a row from your system prompt, which MOCHI treats as a leak. This happens when the system prompt holds facts the bot is meant to tell customers, such as opening hours. Move those facts out of the system prompt and into a document or tool result. |
-| `ModelUnavailable` when starting | MOCHI couldn't download its model. Connect to the internet once, or see the README's *Model weights* section for offline use. |
+| `ModelUnavailable` when starting | MOCHI couldn't download its model. Connect to the internet once, or see the README's *Good to know* section for offline use. |
